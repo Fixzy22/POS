@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - POS{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-6">Dashboard</h1>
+
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+  <div class="stat-card">
+    <p class="stat-label">Active Products</p>
+    <p class="stat-value">{{ stats.total_products }}</p>
+  </div>
+  <div class="stat-card">
+    <p class="stat-label">Low Stock Items</p>
+    <p class="stat-value text-amber-400">{{ stats.low_stock }}</p>
+  </div>
+  <div class="stat-card">
+    <p class="stat-label">Sales Today</p>
+    <p class="stat-value text-emerald-400">${{ "%.2f"|format(stats.sales_today) }}</p>
+    <p class="text-xs text-slate-500">{{ stats.sales_count_today }} transactions</p>
+  </div>
+  <div class="stat-card">
+    <p class="stat-label">Total Revenue</p>
+    <p class="stat-value">${{ "%.2f"|format(stats.total_sales) }}</p>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+  <div class="card p-5">
+    <div class="flex justify-between items-center mb-4">
+      <h2 class="font-semibold text-lg">Low Stock Alerts</h2>
+      {% if session.get('role') == 'admin' %}
+      <a href="{{ url_for('inventory') }}" class="text-sm text-emerald-400">Manage →</a>
+      {% endif %}
+    </div>
+    {% if low_stock_products %}
+    <div class="space-y-2">
+      {% for p in low_stock_products %}
+      <div class="flex justify-between items-center py-2 border-b border-slate-800 last:border-0">
+        <div>
+          <p class="font-medium">{{ p.name }}</p>
+          <p class="text-xs text-slate-500">{{ p.sku }}</p>
+        </div>
+        <span class="badge-warning">{{ p.stock }} left</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-slate-500">All products are well stocked.</p>
+    {% endif %}
+  </div>
+
+  <div class="card p-5">
+    <div class="flex justify-between items-center mb-4">
+      <h2 class="font-semibold text-lg">Recent Sales</h2>
+      <a href="{{ url_for('sales_history') }}" class="text-sm text-emerald-400">View all →</a>
+    </div>
+    {% if recent_sales %}
+    <div class="space-y-2">
+      {% for s in recent_sales %}
+      <a href="{{ url_for('sale_detail', sale_id=s.id) }}" class="flex justify-between items-center py-2 border-b border-slate-800 last:border-0 hover:bg-slate-800/50 rounded px-2 -mx-2">
+        <div>
+          <p class="font-medium">{{ s.sale_number }}</p>
+          <p class="text-xs text-slate-500">{{ s.created_at }} · {{ s.username }}</p>
+        </div>
+        <span class="text-emerald-400 font-semibold">${{ "%.2f"|format(s.total_amount) }}</span>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-slate-500">No sales recorded yet.</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="mt-6 flex gap-3">
+  <a href="{{ url_for('pos') }}" class="btn-primary">Open POS</a>
+  {% if session.get('role') == 'admin' %}
+  <a href="{{ url_for('inventory') }}" class="btn-secondary">Manage Inventory</a>
+  {% endif %}
+</div>
+{% endblock %}

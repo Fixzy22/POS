@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block title %}Point of Sale{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-6">Point of Sale</h1>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  <div class="lg:col-span-2">
+    <div class="mb-4">
+      <input type="text" id="productSearch" placeholder="Search products..." class="input w-full" oninput="filterProducts()">
+    </div>
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3" id="productGrid">
+      {% for p in products %}
+      <button
+        class="product-card card p-4 text-left hover:border-emerald-500 transition-colors"
+        data-id="{{ p.id }}"
+        data-name="{{ p.name }}"
+        data-price="{{ p.price }}"
+        data-stock="{{ p.stock }}"
+        data-sku="{{ p.sku }}"
+        onclick="addToCart(this)"
+      >
+        <p class="font-medium text-sm truncate">{{ p.name }}</p>
+        <p class="text-xs text-slate-500 font-mono">{{ p.sku }}</p>
+        <p class="text-emerald-400 font-bold mt-2">${{ "%.2f"|format(p.price) }}</p>
+        <p class="text-xs text-slate-500 mt-1">{{ p.stock }} in stock</p>
+      </button>
+      {% else %}
+      <p class="col-span-full text-slate-500 card p-8 text-center">No products in stock. Add inventory first.</p>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="card p-5 h-fit sticky top-20">
+    <h2 class="font-semibold text-lg mb-4">Current Sale</h2>
+    <div id="cartItems" class="space-y-2 mb-4 min-h-[120px]">
+      <p class="text-slate-500 text-sm" id="emptyCart">Cart is empty</p>
+    </div>
+    <div class="border-t border-slate-700 pt-4 space-y-3">
+      <div class="flex justify-between text-lg font-bold">
+        <span>Total</span>
+        <span id="cartTotal" class="text-emerald-400">$0.00</span>
+      </div>
+      <div>
+        <label class="label">Payment Method</label>
+        <select id="paymentMethod" class="input">
+          <option value="cash">Cash</option>
+          <option value="card">Card</option>
+          <option value="mobile">Mobile Pay</option>
+        </select>
+      </div>
+      <div>
+        <label class="label">Notes</label>
+        <input type="text" id="saleNotes" class="input" placeholder="Optional">
+      </div>
+      <button onclick="checkout()" id="checkoutBtn" class="btn-primary w-full" disabled>Complete Sale</button>
+      <button onclick="clearCart()" class="btn-secondary w-full">Clear Cart</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let cart = [];
+
+function addToCart(el) {
+  const id = parseInt(el.dataset.id);
+  const existing = cart.find(i => i.product_id === id);
+  const stock = parseInt(el.dataset.stock);
+
+  if (existing) {
+    if (existing.quantity >= stock) {
+      alert('Not enough stock available.');
+      return;
+    }
+    existing.quantity++;
+  } else {
+    cart.push({
+      product_id: id,
+      name: el.dataset.name,
+      price: parseFloat(el.dataset.price),
+      stock: stock,
+      quantity: 1
+    });
+  }
+  renderCart();
+}
+
+function updateQty(id, delta) {
+  const item = cart.find(i => i.product_id === id);
+  if (!item) return;
+  item.quantity += delta;
+  if (item.quantity <= 0) {
+    cart = cart.filter(i => i.product_id !== id);
+  } else if (item.quantity > item.stock) {
+    item.quantity = item.stock;
+    alert('Maximum stock reached.');
+  }
+  renderCart();
+}
+
+function removeItem(id) {
+  cart = cart.filter(i => i.product_id !== id);
+  renderCart();
+}
+
+function renderCart() {
+  const container = document.getElementById('cartItems');
+  const totalEl = document.getElementById('cartTotal');
+  const btn = document.getElementById('checkoutBtn');
+
+  if (cart.length === 0) {
+    container.innerHTML = '<p class="text-slate-500 text-sm" id="emptyCart">Cart is empty</p>';
+    totalEl.textContent = '$0.00';
+    btn.disabled = true;
+    return;
+  }
+
+  let total = 0;
+  container.innerHTML = cart.map(item => {
+    const line = item.price * item.quantity;
+    total += line;
+    return `
+      <div class="flex items-center justify-between bg-slate-800/50 rounded p-2">
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-medium truncate">${item.name}</p>
+          <p class="text-xs text-slate-500">$${item.price.toFixed(2)} × ${item.quantity}</p>
+        </div>
+        <div class="flex items-center gap-1 ml-2">
+          <button onclick="updateQty(${item.product_id}, -1)" class="qty-btn">−</button>
+          <span class="text-sm w-6 text-center">${item.quantity}</span>
+          <button onclick="updateQty(${item.product_id}, 1)" class="qty-btn">+</button>
+          <button onclick="removeItem(${item.product_id})" class="text-red-400 text-xs ml-1">✕</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  totalEl.textContent = '$' + total.toFixed(2);
+  btn.disabled = false;
+}
+
+function clearCart() {
+  cart = [];
+  renderCart();
+}
+
+async function checkout() {
+  if (cart.length === 0) return;
+  const btn = document.getElementById('checkoutBtn');
+  btn.disabled = true;
+  btn.textContent = 'Processing...';
+
+  try {
+    const res = await fetch('/api/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        items: cart.map(i => ({ product_id: i.product_id, quantity: i.quantity })),
+        payment_method: document.getElementById('paymentMethod').value,
+        notes: document.getElementById('saleNotes').value
+      })
+    });
+    const data = await res.json();
+    if (data.success) {
+      alert(`Sale complete!\n${data.sale_number}\nTotal: $${data.total.toFixed(2)}`);
+      window.location.reload();
+    } else {
+      alert(data.error || 'Checkout failed');
+      btn.disabled = false;
+      btn.textContent = 'Complete Sale';
+    }
+  } catch (e) {
+    alert('Network error. Please try again.');
+    btn.disabled = false;
+    btn.textContent = 'Complete Sale';
+  }
+}
+
+function filterProducts() {
+  const q = document.getElementById('productSearch').value.toLowerCase();
+  document.querySelectorAll('.product-card').forEach(card => {
+    const text = (card.dataset.name + ' ' + card.dataset.sku).toLowerCase();
+    card.style.display = text.includes(q) ? '' : 'none';
+  });
+}
+</script>
+{% endblock %}

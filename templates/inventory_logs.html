@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Inventory Logs{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-6">Inventory Change Log</h1>
+
+<div class="card overflow-hidden">
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-800/80">
+        <tr>
+          <th class="th">Date</th>
+          <th class="th">Product</th>
+          <th class="th">Change</th>
+          <th class="th">Before → After</th>
+          <th class="th">Reason</th>
+          <th class="th">By</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for log in logs %}
+        <tr class="border-t border-slate-800">
+          <td class="td text-slate-400 text-xs">{{ log.created_at }}</td>
+          <td class="td">
+            <p>{{ log.product_name }}</p>
+            <p class="text-xs text-slate-500 font-mono">{{ log.sku }}</p>
+          </td>
+          <td class="td">
+            <span class="{% if log.change_amount > 0 %}text-emerald-400{% elif log.change_amount < 0 %}text-red-400{% else %}text-slate-400{% endif %} font-semibold">
+              {% if log.change_amount > 0 %}+{% endif %}{{ log.change_amount }}
+            </span>
+          </td>
+          <td class="td text-slate-400">{{ log.previous_stock }} → {{ log.new_stock }}</td>
+          <td class="td">{{ log.reason }}</td>
+          <td class="td">{{ log.username }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="td text-center text-slate-500 py-8">No inventory changes recorded.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

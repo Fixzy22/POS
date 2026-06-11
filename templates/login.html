@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Login - POS System{% endblock %}
+{% block content %}
+<div class="min-h-[80vh] flex items-center justify-center">
+  <div class="w-full max-w-md card p-8">
+    <div class="text-center mb-8">
+      <h1 class="text-3xl font-bold text-emerald-400">ShopPOS</h1>
+      <p class="text-slate-400 mt-2">Inventory & Sales Management</p>
+    </div>
+    <form method="POST" class="space-y-4">
+      <div>
+        <label class="label">Username</label>
+        <input type="text" name="username" required class="input" placeholder="admin" autofocus>
+      </div>
+      <div>
+        <label class="label">Password</label>
+        <input type="password" name="password" required class="input" placeholder="••••••••">
+      </div>
+      <button type="submit" class="btn-primary w-full">Sign In</button>
+    </form>
+    <p class="text-xs text-slate-500 text-center mt-6">Default: admin / admin123</p>
+  </div>
+</div>
+{% endblock %}
