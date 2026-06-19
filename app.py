@@ -1,4 +1,5 @@
 import json
+import os
 import secrets
 from datetime import datetime
 from functools import wraps
@@ -35,7 +36,7 @@ from units import (
 )
 
 app = Flask(__name__)
-app.secret_key = secrets.token_hex(32)
+app.secret_key = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
 
 
 @app.context_processor

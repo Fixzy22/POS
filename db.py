@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -6,7 +7,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from config import ADMIN_PASSWORD, ADMIN_USERNAME
 
-DB_PATH = Path(__file__).parent / "pos.db"
+DB_PATH = Path(os.environ.get("DB_PATH", Path(__file__).parent / "pos.db"))
 
 PRODUCT_MIGRATIONS = [
     "ALTER TABLE products ADD COLUMN price_box REAL NOT NULL DEFAULT 0",
