@@ -1,10 +1,13 @@
 {% extends "base.html" %}
-{% block title %}Inventory - POS{% endblock %}
+{% block title %}Inventory - {{ company_name }}{% endblock %}
 {% block content %}
 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-  <h1 class="text-2xl font-bold">Inventory Management</h1>
+  <div>
+    <h1 class="text-2xl font-bold">Spice Inventory</h1>
+    <p class="text-slate-400 text-sm">Track stock in single units, boxes, and rows</p>
+  </div>
   <form method="GET" class="flex gap-2 w-full sm:w-auto">
-    <input type="text" name="q" value="{{ search }}" placeholder="Search products..." class="input flex-1 sm:w-64">
+    <input type="text" name="q" value="{{ search }}" placeholder="Search spices..." class="input flex-1 sm:w-64">
     <button type="submit" class="btn-secondary">Search</button>
   </form>
 </div>
@@ -16,9 +19,8 @@
         <thead class="bg-slate-800/80">
           <tr>
             <th class="th">SKU</th>
-            <th class="th">Product</th>
-            <th class="th">Category</th>
-            <th class="th text-right">Price</th>
+            <th class="th">Spice</th>
+            <th class="th">Pricing (Unit / Box / Row)</th>
             <th class="th text-right">Stock</th>
             <th class="th">Status</th>
             <th class="th">Actions</th>
@@ -30,14 +32,17 @@
             <td class="td font-mono text-xs">{{ p.sku }}</td>
             <td class="td">
               <p class="font-medium">{{ p.name }}</p>
-              {% if p.description %}<p class="text-xs text-slate-500 truncate max-w-[200px]">{{ p.description }}</p>{% endif %}
+              <p class="text-xs text-slate-500">{{ p.category }}</p>
             </td>
-            <td class="td text-slate-400">{{ p.category }}</td>
-            <td class="td text-right">${{ "%.2f"|format(p.price) }}</td>
+            <td class="td text-xs">
+              <p>{{ p.price|money }} / {{ p.price_box|money }} / {{ p.price_row|money }}</p>
+              <p class="text-slate-500">{{ p.units_per_box }} per box · {{ p.units_per_row }} per row</p>
+            </td>
             <td class="td text-right">
               <span class="{% if p.stock <= p.low_stock_threshold %}text-amber-400{% else %}text-emerald-400{% endif %} font-semibold">
-                {{ p.stock }}
+                {{ p.stock }} singles
               </span>
+              <p class="text-xs text-slate-500">{{ p.stock // p.units_per_box }} boxes · {{ p.stock // p.units_per_row }} rows</p>
             </td>
             <td class="td">
               {% if p.is_active %}
@@ -47,12 +52,12 @@
               {% endif %}
             </td>
             <td class="td">
-              <button onclick="openEditModal({{ p.id }}, {{ p|tojson }})" class="text-emerald-400 hover:underline text-xs">Edit</button>
-              <button onclick="openAdjustModal({{ p.id }}, '{{ p.name }}', {{ p.stock }})" class="text-blue-400 hover:underline text-xs ml-2">Adjust</button>
+              <button onclick="openEditModal({{ p.id }}, {{ p|tojson }})" class="text-amber-400 hover:underline text-xs">Edit</button>
+              <button onclick="openAdjustModal({{ p.id }}, '{{ p.name }}')" class="text-blue-400 hover:underline text-xs ml-2">Adjust</button>
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="7" class="td text-center text-slate-500 py-8">No products found. Add your first product.</td></tr>
+          <tr><td colspan="6" class="td text-center text-slate-500 py-8">No products found. Add your first spice.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -60,67 +65,111 @@
   </div>
 
   <div class="card p-5 h-fit">
-    <h2 class="font-semibold text-lg mb-4">Add Product</h2>
+    <h2 class="font-semibold text-lg mb-4">Add Spice Product</h2>
     <form method="POST" action="{{ url_for('add_product') }}" class="space-y-3">
       <div>
         <label class="label">SKU *</label>
-        <input type="text" name="sku" required class="input" placeholder="SKU-001">
+        <input type="text" name="sku" required class="input" placeholder="YOKY-006">
       </div>
       <div>
         <label class="label">Name *</label>
-        <input type="text" name="name" required class="input" placeholder="Product name">
+        <input type="text" name="name" required class="input" placeholder="Turmeric Powder">
+      </div>
+      <div class="grid grid-cols-3 gap-2">
+        <div>
+          <label class="label">Price / Single *</label>
+          <input type="number" name="price" step="0.01" min="0" required class="input" placeholder="2.50">
+        </div>
+        <div>
+          <label class="label">Price / Box</label>
+          <input type="number" name="price_box" step="0.01" min="0" class="input" placeholder="Auto">
+        </div>
+        <div>
+          <label class="label">Price / Row</label>
+          <input type="number" name="price_row" step="0.01" min="0" class="input" placeholder="Auto">
+        </div>
       </div>
       <div class="grid grid-cols-2 gap-3">
         <div>
-          <label class="label">Price *</label>
-          <input type="number" name="price" step="0.01" min="0" required class="input" placeholder="0.00">
+          <label class="label">Singles per Box</label>
+          <input type="number" name="units_per_box" min="1" value="12" class="input">
         </div>
         <div>
-          <label class="label">Cost</label>
+          <label class="label">Singles per Row</label>
+          <input type="number" name="units_per_row" min="1" value="72" class="input">
+        </div>
+      </div>
+      <div>
+        <label class="label">Initial Stock (enter any combination)</label>
+        <div class="grid grid-cols-3 gap-2">
+          <div>
+            <input type="number" name="stock_singles" min="0" value="0" class="input" placeholder="Singles">
+            <p class="text-xs text-slate-500 mt-1">Singles</p>
+          </div>
+          <div>
+            <input type="number" name="stock_boxes" min="0" value="0" class="input" placeholder="Boxes">
+            <p class="text-xs text-slate-500 mt-1">Boxes</p>
+          </div>
+          <div>
+            <input type="number" name="stock_rows" min="0" value="0" class="input" placeholder="Rows">
+            <p class="text-xs text-slate-500 mt-1">Rows</p>
+          </div>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="label">Cost (per single)</label>
           <input type="number" name="cost" step="0.01" min="0" class="input" placeholder="0.00">
         </div>
-      </div>
-      <div class="grid grid-cols-2 gap-3">
         <div>
-          <label class="label">Stock</label>
-          <input type="number" name="stock" min="0" value="0" class="input">
-        </div>
-        <div>
-          <label class="label">Low Stock Alert</label>
-          <input type="number" name="low_stock_threshold" min="0" value="5" class="input">
+          <label class="label">Low Stock Alert (singles)</label>
+          <input type="number" name="low_stock_threshold" min="0" value="20" class="input">
         </div>
       </div>
       <div>
         <label class="label">Category</label>
-        <input type="text" name="category" class="input" placeholder="General">
+        <input type="text" name="category" class="input" placeholder="Ground Spices" value="Spices">
       </div>
       <div>
         <label class="label">Description</label>
-        <textarea name="description" rows="2" class="input"></textarea>
+        <textarea name="description" rows="2" class="input" placeholder="e.g. 50g sachet"></textarea>
       </div>
       <button type="submit" class="btn-primary w-full">Add Product</button>
     </form>
   </div>
 </div>
 
-<!-- Edit Modal -->
 <div id="editModal" class="modal hidden">
   <div class="modal-backdrop" onclick="closeEditModal()"></div>
-  <div class="modal-content card p-6">
+  <div class="modal-content card p-6 max-w-lg">
     <h3 class="font-semibold text-lg mb-4">Edit Product</h3>
     <form id="editForm" method="POST" class="space-y-3">
       <div>
         <label class="label">Name</label>
         <input type="text" name="name" id="edit_name" required class="input">
       </div>
-      <div class="grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-3 gap-2">
         <div>
-          <label class="label">Price</label>
+          <label class="label">Price / Single</label>
           <input type="number" name="price" id="edit_price" step="0.01" min="0" required class="input">
         </div>
         <div>
-          <label class="label">Cost</label>
-          <input type="number" name="cost" id="edit_cost" step="0.01" min="0" class="input">
+          <label class="label">Price / Box</label>
+          <input type="number" name="price_box" id="edit_price_box" step="0.01" min="0" class="input">
+        </div>
+        <div>
+          <label class="label">Price / Row</label>
+          <input type="number" name="price_row" id="edit_price_row" step="0.01" min="0" class="input">
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="label">Singles per Box</label>
+          <input type="number" name="units_per_box" id="edit_units_per_box" min="1" class="input">
+        </div>
+        <div>
+          <label class="label">Singles per Row</label>
+          <input type="number" name="units_per_row" id="edit_units_per_row" min="1" class="input">
         </div>
       </div>
       <div class="grid grid-cols-2 gap-3">
@@ -149,22 +198,31 @@
   </div>
 </div>
 
-<!-- Adjust Stock Modal -->
 <div id="adjustModal" class="modal hidden">
   <div class="modal-backdrop" onclick="closeAdjustModal()"></div>
   <div class="modal-content card p-6">
     <h3 class="font-semibold text-lg mb-1">Adjust Stock</h3>
     <p id="adjustProductName" class="text-slate-400 text-sm mb-4"></p>
     <form id="adjustForm" method="POST" class="space-y-3">
-      <div>
-        <label class="label">Change (+/-)</label>
-        <input type="number" name="change" required class="input" placeholder="e.g. 10 or -5">
+      <p class="text-xs text-slate-500">Enter +/- amounts for each unit type</p>
+      <div class="grid grid-cols-3 gap-2">
+        <div>
+          <label class="label">Singles (+/-)</label>
+          <input type="number" name="adj_singles" class="input" placeholder="0">
+        </div>
+        <div>
+          <label class="label">Boxes (+/-)</label>
+          <input type="number" name="adj_boxes" class="input" placeholder="0">
+        </div>
+        <div>
+          <label class="label">Rows (+/-)</label>
+          <input type="number" name="adj_rows" class="input" placeholder="0">
+        </div>
       </div>
       <div>
         <label class="label">Reason</label>
         <input type="text" name="reason" class="input" placeholder="Restock, damage, correction...">
       </div>
-      <p class="text-xs text-slate-500">Current stock: <span id="adjustCurrentStock">0</span></p>
       <div class="flex gap-2 pt-2">
         <button type="submit" class="btn-primary flex-1">Apply</button>
         <button type="button" onclick="closeAdjustModal()" class="btn-secondary flex-1">Cancel</button>
@@ -180,7 +238,10 @@ function openEditModal(id, product) {
   document.getElementById('editForm').action = '/inventory/' + id + '/edit';
   document.getElementById('edit_name').value = product.name;
   document.getElementById('edit_price').value = product.price;
-  document.getElementById('edit_cost').value = product.cost;
+  document.getElementById('edit_price_box').value = product.price_box;
+  document.getElementById('edit_price_row').value = product.price_row;
+  document.getElementById('edit_units_per_box').value = product.units_per_box;
+  document.getElementById('edit_units_per_row').value = product.units_per_row;
   document.getElementById('edit_category').value = product.category;
   document.getElementById('edit_low_stock').value = product.low_stock_threshold;
   document.getElementById('edit_description').value = product.description || '';
@@ -188,10 +249,13 @@ function openEditModal(id, product) {
   document.getElementById('editModal').classList.remove('hidden');
 }
 function closeEditModal() { document.getElementById('editModal').classList.add('hidden'); }
-function openAdjustModal(id, name, stock) {
+function openAdjustModal(id, name) {
   document.getElementById('adjustForm').action = '/inventory/' + id + '/adjust';
   document.getElementById('adjustProductName').textContent = name;
-  document.getElementById('adjustCurrentStock').textContent = stock;
+  document.querySelector('[name="adj_singles"]').value = '';
+  document.querySelector('[name="adj_boxes"]').value = '';
+  document.querySelector('[name="adj_rows"]').value = '';
+  document.querySelector('#adjustForm [name="reason"]').value = '';
   document.getElementById('adjustModal').classList.remove('hidden');
 }
 function closeAdjustModal() { document.getElementById('adjustModal').classList.add('hidden'); }

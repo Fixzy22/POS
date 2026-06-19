@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Receipt {{ sale.sale_number }} - {{ company_name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="receipt-body">
+  <div class="receipt-actions no-print">
+    <button onclick="window.print()" class="btn-primary">Print Receipt</button>
+    <a href="{{ url_for('receipts') }}" class="btn-secondary">Back to Receipts</a>
+    <a href="{{ url_for('sale_detail', sale_id=sale.id) }}" class="btn-secondary">View Sale</a>
+  </div>
+
+  <div class="receipt-paper">
+    <div class="receipt-header">
+      <h1 class="receipt-company">{{ company_name }}</h1>
+      <p class="receipt-tagline">{{ company_tagline }}</p>
+      {% if company_address %}<p class="receipt-meta">{{ company_address }}</p>{% endif %}
+      {% if company_phone %}<p class="receipt-meta">Tel: {{ company_phone }}</p>{% endif %}
+    </div>
+
+    <div class="receipt-divider"></div>
+
+    <div class="receipt-info">
+      <div class="receipt-row">
+        <span>Receipt #</span>
+        <span>{{ sale.sale_number }}</span>
+      </div>
+      <div class="receipt-row">
+        <span>Date</span>
+        <span>{{ sale.created_at }}</span>
+      </div>
+      {% if sale.customer_name %}
+      <div class="receipt-row">
+        <span>Customer</span>
+        <span>{{ sale.customer_name }}</span>
+      </div>
+      {% endif %}
+      <div class="receipt-row">
+        <span>Cashier</span>
+        <span>{{ sale.username }}</span>
+      </div>
+      <div class="receipt-row">
+        <span>Payment</span>
+        <span class="capitalize">{{ sale.payment_method }}</span>
+      </div>
+    </div>
+
+    <div class="receipt-divider"></div>
+
+    <table class="receipt-items">
+      <thead>
+        <tr>
+          <th class="text-left">Item</th>
+          <th class="text-center">Qty</th>
+          <th class="text-right">Price</th>
+          <th class="text-right">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        <tr>
+          <td>
+            {{ item.product_name }}
+            <span class="receipt-unit">({{ item.unit_type|unit_label }})</span>
+          </td>
+          <td class="text-center">{{ item.quantity }}</td>
+          <td class="text-right">{{ item.unit_price|money }}</td>
+          <td class="text-right">{{ item.line_total|money }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div class="receipt-divider"></div>
+
+    <div class="receipt-total">
+      <span>TOTAL</span>
+      <span>{{ sale.total_amount|money }}</span>
+    </div>
+
+    {% if sale.notes %}
+    <p class="receipt-notes">Note: {{ sale.notes }}</p>
+    {% endif %}
+
+    <div class="receipt-footer">
+      <p>Thank you for shopping at {{ company_name }}!</p>
+      <p>Quality spices for every kitchen.</p>
+    </div>
+  </div>
+
+  {% if auto_print %}
+  <script>window.addEventListener('load', () => window.print());</script>
+  {% endif %}
+</body>
+</html>
