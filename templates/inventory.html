@@ -52,8 +52,18 @@
               {% endif %}
             </td>
             <td class="td">
-              <button onclick="openEditModal({{ p.id }}, {{ p|tojson }})" class="text-amber-400 hover:underline text-xs">Edit</button>
-              <button onclick="openAdjustModal({{ p.id }}, '{{ p.name }}')" class="text-blue-400 hover:underline text-xs ml-2">Adjust</button>
+              <div class="flex flex-wrap gap-x-2 gap-y-1">
+                <button onclick="openEditModal({{ p.id }}, {{ p|tojson }})" class="text-amber-400 hover:underline text-xs">Edit</button>
+                <button onclick="openAdjustModal({{ p.id }}, '{{ p.name }}')" class="text-blue-400 hover:underline text-xs">Adjust</button>
+                {% if p.stock > 0 %}
+                <form method="POST" action="{{ url_for('clear_stock', product_id=p.id) }}" class="inline" onsubmit="return confirm('Remove all stock for {{ p.name }}?')">
+                  <button type="submit" class="text-slate-400 hover:underline text-xs">Clear Stock</button>
+                </form>
+                {% endif %}
+                <form method="POST" action="{{ url_for('delete_product', product_id=p.id) }}" class="inline" onsubmit="return confirm('Permanently delete {{ p.name }} from inventory? This cannot be undone.')">
+                  <button type="submit" class="text-red-400 hover:underline text-xs">Delete</button>
+                </form>
+              </div>
             </td>
           </tr>
           {% else %}

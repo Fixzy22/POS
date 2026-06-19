@@ -337,6 +337,66 @@ def adjust_stock(product_id):
     return redirect(url_for("inventory"))
 
 
+@app.route("/inventory/<int:product_id>/clear-stock", methods=["POST"])
+@login_required
+@admin_required
+def clear_stock(product_id):
+    with get_db() as conn:
+        product = conn.execute(
+            "SELECT * FROM products WHERE id = ?", (product_id,)
+        ).fetchone()
+        if not product:
+            flash("Product not found.", "error")
+            return redirect(url_for("inventory"))
+
+        if product["stock"] == 0:
+            flash("Stock is already zero.", "error")
+            return redirect(url_for("inventory"))
+
+        conn.execute(
+            "UPDATE products SET stock = 0, updated_at = datetime('now') WHERE id = ?",
+            (product_id,),
+        )
+        conn.execute(
+            """
+            INSERT INTO inventory_logs (product_id, change_amount, previous_stock, new_stock, reason, created_by)
+            VALUES (?, ?, ?, 0, 'Stock cleared', ?)
+            """,
+            (product_id, -product["stock"], product["stock"], session["user_id"]),
+        )
+    flash(f"All stock removed for '{product['name']}'.", "success")
+    return redirect(url_for("inventory"))
+
+
+@app.route("/inventory/<int:product_id>/delete", methods=["POST"])
+@login_required
+@admin_required
+def delete_product(product_id):
+    with get_db() as conn:
+        product = conn.execute(
+            "SELECT * FROM products WHERE id = ?", (product_id,)
+        ).fetchone()
+        if not product:
+            flash("Product not found.", "error")
+            return redirect(url_for("inventory"))
+
+        sale_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM sale_items WHERE product_id = ?",
+            (product_id,),
+        ).fetchone()["c"]
+        if sale_count > 0:
+            flash(
+                f"Cannot delete '{product['name']}' — it has sales history. Deactivate it instead.",
+                "error",
+            )
+            return redirect(url_for("inventory"))
+
+        conn.execute("DELETE FROM inventory_logs WHERE product_id = ?", (product_id,))
+        conn.execute("DELETE FROM products WHERE id = ?", (product_id,))
+    flash(f"Product '{product['name']}' removed from inventory.", "success")
+    return redirect(url_for("inventory"))
+
+
 @app.route("/pos")
 @login_required
 def pos():
