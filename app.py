@@ -52,6 +52,7 @@ def inject_company():
         "company_email": COMPANY_EMAIL,
         "currency_symbol": CURRENCY_SYMBOL,
         "unit_labels": UNIT_LABELS,
+        "current_year": datetime.now().year,
     }
 
 

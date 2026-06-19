@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
   <script>window.CURRENCY_SYMBOL = {{ currency_symbol|tojson }};</script>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen" data-home-url="{{ url_for('home') }}">
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col" data-home-url="{{ url_for('home') }}">
   {% if session.get('user_id') %}
   <nav class="bg-slate-900 border-b border-slate-800 sticky top-0 z-50 no-print">
     <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -44,7 +44,7 @@
   </nav>
   {% endif %}
 
-  <main class="max-w-7xl mx-auto px-4 py-6">
+  <main class="flex-1 max-w-7xl mx-auto px-4 py-6 w-full">
     {% if session.get('user_id') and request.endpoint != 'login' %}
     <div class="mb-4 no-print">
       <button type="button" onclick="goBack()" class="back-button">← Back</button>
@@ -63,6 +63,11 @@
 
     {% block content %}{% endblock %}
   </main>
+
+  <footer class="site-footer no-print">
+    <p>&copy; {{ current_year }} {{ company_name }}. All rights reserved.</p>
+    <p>Powered by <span class="footer-brand">FelTech</span> — For more info contact FelTech on <a href="tel:+233596277004" class="footer-contact">+233596277004</a></p>
+  </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
   <script src="{{ url_for('static', filename='app.js') }}"></script>
