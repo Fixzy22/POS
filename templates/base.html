@@ -6,31 +6,37 @@
   <title>{% block title %}{{ company_name }}{% endblock %}</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
   <script>window.CURRENCY_SYMBOL = {{ currency_symbol|tojson }};</script>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen">
+<body class="bg-slate-950 text-slate-100 min-h-screen" data-home-url="{{ url_for('home') }}">
   {% if session.get('user_id') %}
   <nav class="bg-slate-900 border-b border-slate-800 sticky top-0 z-50 no-print">
     <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
       <div class="flex items-center gap-6">
-        <a href="{{ url_for('dashboard') }}" class="text-lg font-bold text-amber-400">
+        <a href="{{ url_for('home') }}" class="text-lg font-bold text-amber-400">
           {{ company_name }}
           <span class="hidden sm:inline text-xs font-normal text-slate-500 ml-1">{{ company_tagline }}</span>
         </a>
         <div class="hidden md:flex gap-4 text-sm">
+          {% if session.get('role') == 'admin' %}
           <a href="{{ url_for('dashboard') }}" class="nav-link">Dashboard</a>
+          <a href="{{ url_for('inventory') }}" class="nav-link">Inventory</a>
+          <a href="{{ url_for('sales_history') }}" class="nav-link">Sales &amp; Reports</a>
+          <a href="{{ url_for('inventory_logs') }}" class="nav-link">Stock Logs</a>
+          <a href="{{ url_for('admin_users') }}" class="nav-link">Users</a>
+          {% else %}
           <a href="{{ url_for('pos') }}" class="nav-link">Point of Sale</a>
           <a href="{{ url_for('receipts') }}" class="nav-link">Receipts</a>
-          <a href="{{ url_for('sales_history') }}" class="nav-link">Sales</a>
-          {% if session.get('role') == 'admin' %}
+          <a href="{{ url_for('sales_history') }}" class="nav-link">My Sales</a>
           <a href="{{ url_for('inventory') }}" class="nav-link">Inventory</a>
-          <a href="{{ url_for('inventory_logs') }}" class="nav-link">Stock Logs</a>
           {% endif %}
         </div>
       </div>
       <div class="flex items-center gap-4 text-sm">
-        <span class="text-slate-400">{{ session.get('username') }}
-          {% if session.get('role') == 'admin' %}<span class="badge-admin">Admin</span>{% endif %}
+        <span class="text-slate-400">
+          {% if session.get('full_name') %}{{ session.full_name }}{% else %}{{ session.get('username') }}{% endif %}
+          {% if session.get('role') == 'admin' %}<span class="badge-admin">Admin</span>{% else %}<span class="badge-staff">Staff</span>{% endif %}
         </span>
         <a href="{{ url_for('logout') }}" class="text-red-400 hover:text-red-300">Logout</a>
       </div>
@@ -39,6 +45,12 @@
   {% endif %}
 
   <main class="max-w-7xl mx-auto px-4 py-6">
+    {% if session.get('user_id') and request.endpoint != 'login' %}
+    <div class="mb-4 no-print">
+      <button type="button" onclick="goBack()" class="back-button">← Back</button>
+    </div>
+    {% endif %}
+
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
         <div class="mb-4 space-y-2 no-print">
@@ -52,6 +64,7 @@
     {% block content %}{% endblock %}
   </main>
 
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
   <script src="{{ url_for('static', filename='app.js') }}"></script>
   {% block scripts %}{% endblock %}
 </body>

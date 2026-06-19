@@ -1,7 +1,7 @@
 import json
 import os
 import secrets
-from datetime import datetime
+from datetime import date, datetime
 from functools import wraps
 
 from flask import (
@@ -16,6 +16,8 @@ from flask import (
 )
 
 from config import (
+    ADMIN_PASSWORD,
+    ADMIN_USERNAME,
     COMPANY_ADDRESS,
     COMPANY_EMAIL,
     COMPANY_NAME,
@@ -24,7 +26,8 @@ from config import (
     CURRENCY_SYMBOL,
     UNIT_LABELS,
 )
-from db import get_db, init_db, verify_user
+from db import create_user, get_db, init_db, list_users, update_user_password, verify_user
+from reports import fetch_dashboard_revenue, fetch_revenue
 from units import (
     from_mixed_units,
     singles_per_unit,
@@ -87,10 +90,27 @@ def admin_required(f):
     def decorated(*args, **kwargs):
         if session.get("role") != "admin":
             flash("Admin access required.", "error")
-            return redirect(url_for("dashboard"))
+            return redirect(url_for("home"))
         return f(*args, **kwargs)
 
     return decorated
+
+
+def staff_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if session.get("role") != "user":
+            flash("This area is for staff users only.", "error")
+            return redirect(url_for("home"))
+        return f(*args, **kwargs)
+
+    return decorated
+
+
+def home_redirect():
+    if session.get("role") == "admin":
+        return redirect(url_for("dashboard"))
+    return redirect(url_for("pos"))
 
 
 @app.before_request
@@ -101,8 +121,14 @@ def ensure_db():
 @app.route("/")
 def index():
     if "user_id" in session:
-        return redirect(url_for("dashboard"))
+        return home_redirect()
     return redirect(url_for("login"))
+
+
+@app.route("/home")
+@login_required
+def home():
+    return home_redirect()
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -114,9 +140,13 @@ def login():
         if user:
             session["user_id"] = user["id"]
             session["username"] = user["username"]
+            session["full_name"] = user.get("full_name") or ""
             session["role"] = user["role"]
-            flash(f"Welcome back, {user['username']}!", "success")
-            return redirect(url_for("dashboard"))
+            display = user.get("full_name") or user["username"]
+            flash(f"Welcome back, {display}!", "success")
+            if user["role"] == "admin":
+                return redirect(url_for("dashboard"))
+            return redirect(url_for("pos"))
         flash("Invalid username or password.", "error")
     return render_template("login.html")
 
@@ -130,8 +160,10 @@ def logout():
 
 @app.route("/dashboard")
 @login_required
+@admin_required
 def dashboard():
     with get_db() as conn:
+        revenue = fetch_dashboard_revenue(conn)
         stats = {
             "total_products": conn.execute(
                 "SELECT COUNT(*) AS c FROM products WHERE is_active = 1"
@@ -141,15 +173,6 @@ def dashboard():
             ).fetchone()["c"],
             "total_stock_value": conn.execute(
                 "SELECT COALESCE(SUM(stock * price), 0) AS v FROM products WHERE is_active = 1"
-            ).fetchone()["v"],
-            "sales_today": conn.execute(
-                "SELECT COALESCE(SUM(total_amount), 0) AS v FROM sales WHERE date(created_at) = date('now')"
-            ).fetchone()["v"],
-            "sales_count_today": conn.execute(
-                "SELECT COUNT(*) AS c FROM sales WHERE date(created_at) = date('now')"
-            ).fetchone()["c"],
-            "total_sales": conn.execute(
-                "SELECT COALESCE(SUM(total_amount), 0) AS v FROM sales"
             ).fetchone()["v"],
         }
         low_stock_products = conn.execute(
@@ -161,7 +184,7 @@ def dashboard():
         ).fetchall()
         recent_sales = conn.execute(
             """
-            SELECT s.*, u.username
+            SELECT s.*, u.username, u.full_name
             FROM sales s
             JOIN users u ON u.id = s.created_by
             ORDER BY s.created_at DESC LIMIT 8
@@ -170,6 +193,7 @@ def dashboard():
     return render_template(
         "dashboard.html",
         stats=stats,
+        revenue=revenue,
         low_stock_products=low_stock_products,
         recent_sales=recent_sales,
     )
@@ -177,7 +201,6 @@ def dashboard():
 
 @app.route("/inventory")
 @login_required
-@admin_required
 def inventory():
     search = request.args.get("q", "").strip()
     with get_db() as conn:
@@ -185,21 +208,25 @@ def inventory():
             products = conn.execute(
                 """
                 SELECT * FROM products
-                WHERE name LIKE ? OR sku LIKE ? OR category LIKE ?
+                WHERE is_active = 1 AND (name LIKE ? OR sku LIKE ? OR category LIKE ?)
                 ORDER BY name
                 """,
                 (f"%{search}%", f"%{search}%", f"%{search}%"),
             ).fetchall()
         else:
             products = conn.execute(
-                "SELECT * FROM products ORDER BY name"
+                "SELECT * FROM products WHERE is_active = 1 ORDER BY name"
             ).fetchall()
-    return render_template("inventory.html", products=products, search=search)
+    return render_template(
+        "inventory.html",
+        products=products,
+        search=search,
+        can_manage_inventory=True,
+    )
 
 
 @app.route("/inventory/add", methods=["POST"])
 @login_required
-@admin_required
 def add_product():
     sku = request.form.get("sku", "").strip().upper()
     name = request.form.get("name", "").strip()
@@ -258,7 +285,6 @@ def add_product():
 
 @app.route("/inventory/<int:product_id>/edit", methods=["POST"])
 @login_required
-@admin_required
 def edit_product(product_id):
     name = request.form.get("name", "").strip()
     price = float(request.form.get("price", 0) or 0)
@@ -297,7 +323,6 @@ def edit_product(product_id):
 
 @app.route("/inventory/<int:product_id>/adjust", methods=["POST"])
 @login_required
-@admin_required
 def adjust_stock(product_id):
     singles = int(request.form.get("adj_singles", 0) or 0)
     boxes = int(request.form.get("adj_boxes", 0) or 0)
@@ -339,7 +364,6 @@ def adjust_stock(product_id):
 
 @app.route("/inventory/<int:product_id>/clear-stock", methods=["POST"])
 @login_required
-@admin_required
 def clear_stock(product_id):
     with get_db() as conn:
         product = conn.execute(
@@ -370,7 +394,6 @@ def clear_stock(product_id):
 
 @app.route("/inventory/<int:product_id>/delete", methods=["POST"])
 @login_required
-@admin_required
 def delete_product(product_id):
     with get_db() as conn:
         product = conn.execute(
@@ -384,21 +407,38 @@ def delete_product(product_id):
             "SELECT COUNT(*) AS c FROM sale_items WHERE product_id = ?",
             (product_id,),
         ).fetchone()["c"]
-        if sale_count > 0:
-            flash(
-                f"Cannot delete '{product['name']}' — it has sales history. Deactivate it instead.",
-                "error",
-            )
-            return redirect(url_for("inventory"))
 
-        conn.execute("DELETE FROM inventory_logs WHERE product_id = ?", (product_id,))
-        conn.execute("DELETE FROM products WHERE id = ?", (product_id,))
-    flash(f"Product '{product['name']}' removed from inventory.", "success")
+        if sale_count > 0:
+            if product["stock"] > 0:
+                conn.execute(
+                    """
+                    INSERT INTO inventory_logs (product_id, change_amount, previous_stock, new_stock, reason, created_by)
+                    VALUES (?, ?, ?, 0, 'Stock cleared on product removal', ?)
+                    """,
+                    (product_id, -product["stock"], product["stock"], session["user_id"]),
+                )
+            conn.execute(
+                """
+                UPDATE products
+                SET is_active = 0, stock = 0, updated_at = datetime('now')
+                WHERE id = ?
+                """,
+                (product_id,),
+            )
+            flash(
+                f"'{product['name']}' removed from inventory. Past sales records are kept.",
+                "success",
+            )
+        else:
+            conn.execute("DELETE FROM inventory_logs WHERE product_id = ?", (product_id,))
+            conn.execute("DELETE FROM products WHERE id = ?", (product_id,))
+            flash(f"Product '{product['name']}' permanently deleted.", "success")
     return redirect(url_for("inventory"))
 
 
 @app.route("/pos")
 @login_required
+@staff_required
 def pos():
     with get_db() as conn:
         products = conn.execute(
@@ -425,6 +465,7 @@ def pos():
 
 @app.route("/receipts")
 @login_required
+@staff_required
 def receipts():
     with get_db() as conn:
         products = conn.execute(
@@ -432,7 +473,7 @@ def receipts():
         ).fetchall()
         recent_sales = conn.execute(
             """
-            SELECT s.*, u.username,
+            SELECT s.*, u.username, u.full_name,
                    (SELECT COUNT(*) FROM sale_items si WHERE si.sale_id = s.id) AS item_count
             FROM sales s
             JOIN users u ON u.id = s.created_by
@@ -464,6 +505,7 @@ def receipts():
 
 @app.route("/api/checkout", methods=["POST"])
 @login_required
+@staff_required
 def checkout():
     data = request.get_json(silent=True) or {}
     items = data.get("items", [])
@@ -565,17 +607,65 @@ def checkout():
 @app.route("/sales")
 @login_required
 def sales_history():
+    date_from = request.args.get("date_from", "").strip()
+    date_to = request.args.get("date_to", "").strip()
+    is_admin = session.get("role") == "admin"
+
     with get_db() as conn:
-        sales = conn.execute(
-            """
-            SELECT s.*, u.username,
-                   (SELECT COUNT(*) FROM sale_items si WHERE si.sale_id = s.id) AS item_count
-            FROM sales s
-            JOIN users u ON u.id = s.created_by
-            ORDER BY s.created_at DESC
-            """
-        ).fetchall()
-    return render_template("sales.html", sales=sales)
+        params = []
+        date_clause = ""
+        if is_admin and date_from:
+            date_clause += " AND date(s.created_at) >= ?"
+            params.append(date_from)
+        if is_admin and date_to:
+            date_clause += " AND date(s.created_at) <= ?"
+            params.append(date_to)
+
+        if session.get("role") == "user":
+            sales = conn.execute(
+                f"""
+                SELECT s.*, u.username, u.full_name,
+                       (SELECT COUNT(*) FROM sale_items si WHERE si.sale_id = s.id) AS item_count
+                FROM sales s
+                JOIN users u ON u.id = s.created_by
+                WHERE s.created_by = ?
+                ORDER BY s.created_at DESC
+                """,
+                (session["user_id"],),
+            ).fetchall()
+            period_revenue = None
+        else:
+            sales = conn.execute(
+                f"""
+                SELECT s.*, u.username, u.full_name,
+                       (SELECT COUNT(*) FROM sale_items si WHERE si.sale_id = s.id) AS item_count
+                FROM sales s
+                JOIN users u ON u.id = s.created_by
+                WHERE 1=1{date_clause}
+                ORDER BY s.created_at DESC
+                """,
+                params,
+            ).fetchall()
+
+            if date_from or date_to:
+                start = date.fromisoformat(date_from) if date_from else date(1900, 1, 1)
+                end = date.fromisoformat(date_to) if date_to else date.today()
+                if start > end:
+                    start, end = end, start
+                period_revenue = fetch_revenue(conn, start, end)
+                period_revenue["date_from"] = start.isoformat()
+                period_revenue["date_to"] = end.isoformat()
+            else:
+                period_revenue = fetch_dashboard_revenue(conn)
+
+    return render_template(
+        "sales.html",
+        sales=sales,
+        is_admin=is_admin,
+        date_from=date_from,
+        date_to=date_to,
+        period_revenue=period_revenue,
+    )
 
 
 @app.route("/sales/<int:sale_id>")
@@ -584,7 +674,7 @@ def sale_detail(sale_id):
     with get_db() as conn:
         sale = conn.execute(
             """
-            SELECT s.*, u.username FROM sales s
+            SELECT s.*, u.username, u.full_name FROM sales s
             JOIN users u ON u.id = s.created_by
             WHERE s.id = ?
             """,
@@ -593,11 +683,19 @@ def sale_detail(sale_id):
         if not sale:
             flash("Sale not found.", "error")
             return redirect(url_for("sales_history"))
+        if session.get("role") == "user" and sale["created_by"] != session["user_id"]:
+            flash("You can only view your own sales.", "error")
+            return redirect(url_for("sales_history"))
         items = conn.execute(
             "SELECT * FROM sale_items WHERE sale_id = ? ORDER BY id",
             (sale_id,),
         ).fetchall()
-    return render_template("sale_detail.html", sale=sale, items=items)
+    return render_template(
+        "sale_detail.html",
+        sale=sale,
+        items=items,
+        is_admin=session.get("role") == "admin",
+    )
 
 
 @app.route("/sales/<int:sale_id>/receipt")
@@ -606,7 +704,7 @@ def sale_receipt(sale_id):
     with get_db() as conn:
         sale = conn.execute(
             """
-            SELECT s.*, u.username FROM sales s
+            SELECT s.*, u.username, u.full_name FROM sales s
             JOIN users u ON u.id = s.created_by
             WHERE s.id = ?
             """,
@@ -614,6 +712,9 @@ def sale_receipt(sale_id):
         ).fetchone()
         if not sale:
             flash("Sale not found.", "error")
+            return redirect(url_for("receipts") if session.get("role") == "user" else url_for("sales_history"))
+        if session.get("role") == "user" and sale["created_by"] != session["user_id"]:
+            flash("You can only view your own receipts.", "error")
             return redirect(url_for("receipts"))
         items = conn.execute(
             "SELECT * FROM sale_items WHERE sale_id = ? ORDER BY id",
@@ -635,7 +736,7 @@ def inventory_logs():
     with get_db() as conn:
         logs = conn.execute(
             """
-            SELECT l.*, p.name AS product_name, p.sku, u.username
+            SELECT l.*, p.name AS product_name, p.sku, u.username, u.full_name
             FROM inventory_logs l
             JOIN products p ON p.id = l.product_id
             JOIN users u ON u.id = l.created_by
@@ -643,6 +744,231 @@ def inventory_logs():
             """
         ).fetchall()
     return render_template("inventory_logs.html", logs=logs)
+
+
+def _clear_sales_in_range(conn, date_from: str | None, date_to: str | None):
+    clauses = []
+    params = []
+    if date_from:
+        clauses.append("date(created_at) >= ?")
+        params.append(date_from)
+    if date_to:
+        clauses.append("date(created_at) <= ?")
+        params.append(date_to)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+
+    sales = conn.execute(
+        f"SELECT id, sale_number FROM sales {where}",
+        params,
+    ).fetchall()
+    if not sales:
+        return 0
+
+    sale_ids = [s["id"] for s in sales]
+    placeholders = ",".join("?" * len(sale_ids))
+    conn.execute(f"DELETE FROM sale_items WHERE sale_id IN ({placeholders})", sale_ids)
+
+    for sale in sales:
+        conn.execute(
+            "DELETE FROM inventory_logs WHERE reason = ?",
+            (f"Sale {sale['sale_number']}",),
+        )
+
+    conn.execute(f"DELETE FROM sales {where}", params)
+    return len(sales)
+
+
+def _delete_sale(conn, sale_id: int) -> bool:
+    sale = conn.execute(
+        "SELECT id, sale_number FROM sales WHERE id = ?", (sale_id,)
+    ).fetchone()
+    if not sale:
+        return False
+
+    conn.execute("DELETE FROM sale_items WHERE sale_id = ?", (sale_id,))
+    conn.execute(
+        "DELETE FROM inventory_logs WHERE reason = ?",
+        (f"Sale {sale['sale_number']}",),
+    )
+    conn.execute("DELETE FROM sales WHERE id = ?", (sale_id,))
+    return True
+
+
+@app.route("/admin/sales/clear-all", methods=["POST"])
+@login_required
+@admin_required
+def admin_clear_all_sales():
+    confirm = request.form.get("confirm_text", "").strip().upper()
+    if confirm != "CLEAR ALL":
+        flash('Type CLEAR ALL to permanently delete every sale and receipt.', "error")
+        return redirect(url_for("sales_history"))
+
+    try:
+        with get_db() as conn:
+            deleted = _clear_sales_in_range(conn, None, None)
+    except Exception:
+        flash("Could not clear sales records. Please try again.", "error")
+        return redirect(url_for("sales_history"))
+
+    flash(f"All sales records cleared ({deleted} sales removed).", "success")
+    return redirect(url_for("sales_history"))
+
+
+@app.route("/admin/sales/clear-range", methods=["POST"])
+@login_required
+@admin_required
+def admin_clear_sales_range():
+    date_from = request.form.get("date_from", "").strip()
+    date_to = request.form.get("date_to", "").strip()
+    confirm = request.form.get("confirm_text", "").strip().upper()
+
+    if not date_from and not date_to:
+        flash("Select a date range to clear.", "error")
+        return redirect(url_for("sales_history"))
+    if confirm != "CLEAR":
+        flash('Type CLEAR to delete sales in the selected date range.', "error")
+        return redirect(url_for("sales_history", date_from=date_from, date_to=date_to))
+
+    try:
+        with get_db() as conn:
+            deleted = _clear_sales_in_range(conn, date_from or None, date_to or None)
+    except Exception:
+        flash("Could not clear sales for that date range. Please try again.", "error")
+        return redirect(url_for("sales_history", date_from=date_from, date_to=date_to))
+
+    flash(f"Removed {deleted} sales from the selected period.", "success")
+    return redirect(url_for("sales_history", date_from=date_from, date_to=date_to))
+
+
+@app.route("/admin/sales/<int:sale_id>/delete", methods=["POST"])
+@login_required
+@admin_required
+def admin_delete_sale(sale_id):
+    confirm = request.form.get("confirm_text", "").strip().upper()
+    if confirm != "DELETE":
+        flash('Type DELETE to remove this sale record.', "error")
+        return redirect(url_for("sale_detail", sale_id=sale_id))
+
+    try:
+        with get_db() as conn:
+            if not _delete_sale(conn, sale_id):
+                flash("Sale not found.", "error")
+                return redirect(url_for("sales_history"))
+    except Exception:
+        flash("Could not delete this sale record.", "error")
+        return redirect(url_for("sale_detail", sale_id=sale_id))
+
+    flash("Sale record and receipt removed.", "success")
+    return redirect(url_for("sales_history"))
+
+
+@app.route("/admin/users")
+@login_required
+@admin_required
+def admin_users():
+    users = list_users()
+    return render_template("admin_users.html", users=users)
+
+
+@app.route("/admin/users/add", methods=["POST"])
+@login_required
+@admin_required
+def admin_add_user():
+    username = request.form.get("username", "").strip()
+    full_name = request.form.get("full_name", "").strip()
+    password = request.form.get("password", "")
+    confirm = request.form.get("confirm_password", "")
+
+    if not username or not password:
+        flash("Username and password are required.", "error")
+        return redirect(url_for("admin_users"))
+    if len(password) < 4:
+        flash("Password must be at least 4 characters.", "error")
+        return redirect(url_for("admin_users"))
+    if password != confirm:
+        flash("Passwords do not match.", "error")
+        return redirect(url_for("admin_users"))
+    if username.lower() == ADMIN_USERNAME.lower():
+        flash("That username is reserved for the admin account.", "error")
+        return redirect(url_for("admin_users"))
+
+    try:
+        create_user(username, password, full_name, role="user")
+        flash(f"Staff user '{username}' created successfully.", "success")
+    except Exception:
+        flash("Could not create user. Username may already exist.", "error")
+    return redirect(url_for("admin_users"))
+
+
+@app.route("/admin/users/<int:user_id>/edit", methods=["POST"])
+@login_required
+@admin_required
+def admin_edit_user(user_id):
+    full_name = request.form.get("full_name", "").strip()
+    password = request.form.get("password", "").strip()
+    confirm = request.form.get("confirm_password", "").strip()
+    is_active = 1 if request.form.get("is_active") == "on" else 0
+
+    with get_db() as conn:
+        user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not user:
+            flash("User not found.", "error")
+            return redirect(url_for("admin_users"))
+        if user["role"] == "admin" and user_id != session["user_id"]:
+            flash("Admin accounts cannot be edited here.", "error")
+            return redirect(url_for("admin_users"))
+        if user_id == session["user_id"] and not is_active:
+            flash("You cannot deactivate your own account.", "error")
+            return redirect(url_for("admin_users"))
+
+        conn.execute(
+            "UPDATE users SET full_name = ?, is_active = ? WHERE id = ?",
+            (full_name, is_active, user_id),
+        )
+
+    if password:
+        if len(password) < 4:
+            flash("Password must be at least 4 characters.", "error")
+            return redirect(url_for("admin_users"))
+        if password != confirm:
+            flash("Passwords do not match.", "error")
+            return redirect(url_for("admin_users"))
+        update_user_password(user_id, password)
+
+    flash(f"User '{user['username']}' updated.", "success")
+    return redirect(url_for("admin_users"))
+
+
+@app.route("/admin/users/<int:user_id>/delete", methods=["POST"])
+@login_required
+@admin_required
+def admin_delete_user(user_id):
+    if user_id == session["user_id"]:
+        flash("You cannot delete your own account.", "error")
+        return redirect(url_for("admin_users"))
+
+    with get_db() as conn:
+        user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not user:
+            flash("User not found.", "error")
+            return redirect(url_for("admin_users"))
+        if user["role"] == "admin":
+            flash("Admin accounts cannot be deleted.", "error")
+            return redirect(url_for("admin_users"))
+
+        sale_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM sales WHERE created_by = ?", (user_id,)
+        ).fetchone()["c"]
+        if sale_count > 0:
+            conn.execute("UPDATE users SET is_active = 0 WHERE id = ?", (user_id,))
+            flash(
+                f"User '{user['username']}' has sales history and was deactivated instead of deleted.",
+                "success",
+            )
+        else:
+            conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            flash(f"User '{user['username']}' removed.", "success")
+    return redirect(url_for("admin_users"))
 
 
 if __name__ == "__main__":

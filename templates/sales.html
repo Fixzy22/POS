@@ -1,7 +1,109 @@
 {% extends "base.html" %}
 {% block title %}Sales History - {{ company_name }}{% endblock %}
 {% block content %}
-<h1 class="text-2xl font-bold mb-6">Sales History</h1>
+<div class="flex flex-col lg:flex-row justify-between items-start gap-4 mb-6">
+  <div>
+    <h1 class="text-2xl font-bold">{% if is_admin %}Sales &amp; Revenue Reports{% else %}My Sales{% endif %}</h1>
+    <p class="text-slate-400 text-sm mt-1">
+      {% if is_admin %}Pick dates from the calendar, view revenue, and manage sales records{% else %}Your recorded sales and receipts{% endif %}
+    </p>
+  </div>
+</div>
+
+{% if is_admin and period_revenue %}
+<section class="mb-6">
+  {% if date_from or date_to %}
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+    <div class="stat-card border border-amber-500/20">
+      <p class="stat-label">Selected Period Revenue</p>
+      <p class="stat-value text-amber-400">{{ period_revenue.revenue|money }}</p>
+      <p class="text-xs text-slate-500">
+        {{ period_revenue.date_from }} to {{ period_revenue.date_to }} ·
+        {{ period_revenue.transactions }} sale{% if period_revenue.transactions != 1 %}s{% endif %}
+      </p>
+    </div>
+    <div class="stat-card">
+      <p class="stat-label">Records Shown</p>
+      <p class="stat-value">{{ sales|length }}</p>
+      <p class="text-xs text-slate-500">Matching your date filter</p>
+    </div>
+  </div>
+  {% else %}
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+    <div class="stat-card border border-amber-500/20">
+      <p class="stat-label">Today</p>
+      <p class="stat-value text-amber-400">{{ period_revenue.today.revenue|money }}</p>
+      <p class="text-xs text-slate-500">{{ period_revenue.today.transactions }} sales</p>
+    </div>
+    <div class="stat-card">
+      <p class="stat-label">This Week</p>
+      <p class="stat-value">{{ period_revenue.week.revenue|money }}</p>
+      <p class="text-xs text-slate-500">Since {{ period_revenue.week_start }}</p>
+    </div>
+    <div class="stat-card">
+      <p class="stat-label">This Month</p>
+      <p class="stat-value">{{ period_revenue.month.revenue|money }}</p>
+      <p class="text-xs text-slate-500">Since {{ period_revenue.month_start }}</p>
+    </div>
+    <div class="stat-card">
+      <p class="stat-label">All Time</p>
+      <p class="stat-value">{{ period_revenue.all_time.revenue|money }}</p>
+      <p class="text-xs text-slate-500">{{ period_revenue.all_time.transactions }} sales</p>
+    </div>
+  </div>
+  {% endif %}
+</section>
+
+<div class="card p-5 mb-6">
+  <h2 class="font-semibold mb-3">Filter by Date</h2>
+  <p class="text-xs text-slate-500 mb-3">Click a date field to open the calendar picker.</p>
+  <form method="GET" action="{{ url_for('sales_history') }}" class="flex flex-col sm:flex-row flex-wrap gap-3 items-end">
+    <div>
+      <label class="label">From</label>
+      <input type="text" name="date_from" value="{{ date_from }}" class="input date-picker" placeholder="Select start date">
+    </div>
+    <div>
+      <label class="label">To</label>
+      <input type="text" name="date_to" value="{{ date_to }}" class="input date-picker" placeholder="Select end date">
+    </div>
+    <button type="submit" class="btn-primary">Apply Filter</button>
+    {% if date_from or date_to %}
+    <a href="{{ url_for('sales_history') }}" class="btn-secondary">Clear Filter</a>
+    {% endif %}
+  </form>
+</div>
+
+<div class="card p-5 mb-6 border border-red-900/40">
+  <h2 class="font-semibold text-red-400 mb-2">Clear Sales Records</h2>
+  <p class="text-sm text-slate-400 mb-4">
+    Permanently removes sales and receipts from the system. This cannot be undone. Current stock levels are not changed.
+  </p>
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    {% if date_from or date_to %}
+    <form method="POST" action="{{ url_for('admin_clear_sales_range') }}" class="space-y-3 p-4 rounded-lg bg-slate-900/50"
+          onsubmit="return confirm({{ ('Delete all sales from ' ~ (date_from or 'start') ~ ' to ' ~ (date_to or 'end') ~ '?')|tojson }})">
+      <input type="hidden" name="date_from" value="{{ date_from }}">
+      <input type="hidden" name="date_to" value="{{ date_to }}">
+      <p class="text-sm font-medium">Clear selected date range</p>
+      <div>
+        <label class="label">Type CLEAR to confirm</label>
+        <input type="text" name="confirm_text" class="input" placeholder="CLEAR" autocomplete="off" required>
+      </div>
+      <button type="submit" class="btn-secondary text-red-400 border-red-900">Clear Filtered Records</button>
+    </form>
+    {% endif %}
+    <form method="POST" action="{{ url_for('admin_clear_all_sales') }}" class="space-y-3 p-4 rounded-lg bg-slate-900/50"
+          onsubmit="return confirm('Delete ALL sales and receipts? This cannot be undone.')">
+      <p class="text-sm font-medium">Clear every sale record</p>
+      <div>
+        <label class="label">Type CLEAR ALL to confirm</label>
+        <input type="text" name="confirm_text" class="input" placeholder="CLEAR ALL" autocomplete="off" required>
+      </div>
+      <button type="submit" class="btn-secondary text-red-400 border-red-900">Clear All Records</button>
+    </form>
+  </div>
+</div>
+{% endif %}
 
 <div class="card overflow-hidden">
   <div class="overflow-x-auto">
@@ -24,20 +126,48 @@
           <td class="td font-mono text-xs">{{ s.sale_number }}</td>
           <td class="td">{{ s.customer_name or '—' }}</td>
           <td class="td text-slate-400">{{ s.created_at }}</td>
-          <td class="td">{{ s.username }}</td>
+          <td class="td">{% if s.full_name %}{{ s.full_name }} <span class="text-slate-500 text-xs">({{ s.username }})</span>{% else %}{{ s.username }}{% endif %}</td>
           <td class="td">{{ s.item_count }}</td>
           <td class="td capitalize">{{ s.payment_method }}</td>
           <td class="td text-right text-amber-400 font-semibold">{{ s.total_amount|money }}</td>
           <td class="td whitespace-nowrap">
             <a href="{{ url_for('sale_detail', sale_id=s.id) }}" class="text-amber-400 hover:underline text-xs">View</a>
             <a href="{{ url_for('sale_receipt', sale_id=s.id) }}" target="_blank" class="text-slate-400 hover:underline text-xs ml-2">Print</a>
+            {% if is_admin %}
+            <form method="POST" action="{{ url_for('admin_delete_sale', sale_id=s.id) }}" class="inline ml-2"
+                  onsubmit="return confirmDeleteSale(event, {{ s.sale_number|tojson }})">
+              <input type="hidden" name="confirm_text" value="">
+              <button type="submit" class="text-red-400 hover:underline text-xs">Delete</button>
+            </form>
+            {% endif %}
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="8" class="td text-center text-slate-500 py-8">No sales recorded yet.</td></tr>
+        <tr>
+          <td colspan="8" class="td text-center text-slate-500 py-8">
+            {% if is_admin and (date_from or date_to) %}No sales found for the selected dates.{% else %}No sales recorded yet.{% endif %}
+          </td>
+        </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+{% if is_admin %}
+<script>
+function confirmDeleteSale(ev, saleNumber) {
+  const text = prompt('Delete sale ' + saleNumber + '? Type DELETE to confirm.');
+  if (text === null) return false;
+  if (text.trim().toUpperCase() !== 'DELETE') {
+    alert('You must type DELETE to confirm.');
+    return false;
+  }
+  ev.target.querySelector('input[name="confirm_text"]').value = 'DELETE';
+  return true;
+}
+</script>
+{% endif %}
 {% endblock %}

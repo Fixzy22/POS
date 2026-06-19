@@ -4,7 +4,7 @@
 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
   <div>
     <h1 class="text-2xl font-bold">Spice Inventory</h1>
-    <p class="text-slate-400 text-sm">Track stock in single units, boxes, and rows</p>
+    <p class="text-slate-400 text-sm">Add, edit, and manage stock in single units, boxes, and rows</p>
   </div>
   <form method="GET" class="flex gap-2 w-full sm:w-auto">
     <input type="text" name="q" value="{{ search }}" placeholder="Search spices..." class="input flex-1 sm:w-64">
@@ -12,8 +12,8 @@
   </form>
 </div>
 
-<div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
-  <div class="xl:col-span-2 card overflow-hidden">
+<div class="grid grid-cols-1 {% if can_manage_inventory %}xl:grid-cols-3{% endif %} gap-6">
+  <div class="{% if can_manage_inventory %}xl:col-span-2{% endif %} card overflow-hidden">
     <div class="overflow-x-auto">
       <table class="w-full text-sm">
         <thead class="bg-slate-800/80">
@@ -23,7 +23,7 @@
             <th class="th">Pricing (Unit / Box / Row)</th>
             <th class="th text-right">Stock</th>
             <th class="th">Status</th>
-            <th class="th">Actions</th>
+            {% if can_manage_inventory %}<th class="th">Actions</th>{% endif %}
           </tr>
         </thead>
         <tbody>
@@ -51,29 +51,32 @@
               <span class="badge-muted">Inactive</span>
               {% endif %}
             </td>
+            {% if can_manage_inventory %}
             <td class="td">
               <div class="flex flex-wrap gap-x-2 gap-y-1">
                 <button onclick="openEditModal({{ p.id }}, {{ p|tojson }})" class="text-amber-400 hover:underline text-xs">Edit</button>
-                <button onclick="openAdjustModal({{ p.id }}, '{{ p.name }}')" class="text-blue-400 hover:underline text-xs">Adjust</button>
+                <button onclick="openAdjustModal({{ p.id }}, {{ p.name|tojson }})" class="text-blue-400 hover:underline text-xs">Adjust</button>
                 {% if p.stock > 0 %}
-                <form method="POST" action="{{ url_for('clear_stock', product_id=p.id) }}" class="inline" onsubmit="return confirm('Remove all stock for {{ p.name }}?')">
+                <form method="POST" action="{{ url_for('clear_stock', product_id=p.id) }}" class="inline" onsubmit="return confirm({{ ('Remove all stock for ' ~ p.name ~ '?')|tojson }})">
                   <button type="submit" class="text-slate-400 hover:underline text-xs">Clear Stock</button>
                 </form>
                 {% endif %}
-                <form method="POST" action="{{ url_for('delete_product', product_id=p.id) }}" class="inline" onsubmit="return confirm('Permanently delete {{ p.name }} from inventory? This cannot be undone.')">
+                <form method="POST" action="{{ url_for('delete_product', product_id=p.id) }}" class="inline" onsubmit="return confirm({{ ('Remove ' ~ p.name ~ ' from inventory? Products with past sales will be archived.')|tojson }})">
                   <button type="submit" class="text-red-400 hover:underline text-xs">Delete</button>
                 </form>
               </div>
             </td>
+            {% endif %}
           </tr>
           {% else %}
-          <tr><td colspan="6" class="td text-center text-slate-500 py-8">No products found. Add your first spice.</td></tr>
+          <tr><td colspan="{% if can_manage_inventory %}6{% else %}5{% endif %}" class="td text-center text-slate-500 py-8">No products found.{% if can_manage_inventory %} Add your first spice.{% endif %}</td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
   </div>
 
+  {% if can_manage_inventory %}
   <div class="card p-5 h-fit">
     <h2 class="font-semibold text-lg mb-4">Add Spice Product</h2>
     <form method="POST" action="{{ url_for('add_product') }}" class="space-y-3">
@@ -147,8 +150,10 @@
       <button type="submit" class="btn-primary w-full">Add Product</button>
     </form>
   </div>
+  {% endif %}
 </div>
 
+{% if can_manage_inventory %}
 <div id="editModal" class="modal hidden">
   <div class="modal-backdrop" onclick="closeEditModal()"></div>
   <div class="modal-content card p-6 max-w-lg">
@@ -240,9 +245,11 @@
     </form>
   </div>
 </div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
+{% if can_manage_inventory %}
 <script>
 function openEditModal(id, product) {
   document.getElementById('editForm').action = '/inventory/' + id + '/edit';
@@ -270,4 +277,5 @@ function openAdjustModal(id, name) {
 }
 function closeAdjustModal() { document.getElementById('adjustModal').classList.add('hidden'); }
 </script>
+{% endif %}
 {% endblock %}

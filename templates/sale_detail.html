@@ -2,15 +2,24 @@
 {% block title %}Sale {{ sale.sale_number }}{% endblock %}
 {% block content %}
 <div class="mb-6 flex flex-wrap gap-3 items-center">
-  <a href="{{ url_for('sales_history') }}" class="text-amber-400 text-sm hover:underline">← Back to Sales</a>
   <a href="{{ url_for('sale_receipt', sale_id=sale.id) }}" target="_blank" class="btn-primary text-sm">Print Receipt</a>
+  {% if is_admin %}
+  <form method="POST" action="{{ url_for('admin_delete_sale', sale_id=sale.id) }}" class="inline"
+        onsubmit="return confirm('Permanently delete this sale and receipt?')">
+    <input type="text" name="confirm_text" class="input text-sm w-28 inline-block mr-2" placeholder="Type DELETE" autocomplete="off" required>
+    <button type="submit" class="btn-secondary text-sm text-red-400">Delete Record</button>
+  </form>
+  {% endif %}
 </div>
 
 <div class="card p-6 max-w-2xl">
   <div class="flex justify-between items-start mb-6">
     <div>
       <h1 class="text-xl font-bold">{{ sale.sale_number }}</h1>
-      <p class="text-slate-400 text-sm mt-1">{{ sale.created_at }} · {{ sale.username }}</p>
+      <p class="text-slate-400 text-sm mt-1">
+        {{ sale.created_at }} ·
+        {% if sale.full_name %}{{ sale.full_name }} ({{ sale.username }}){% else %}{{ sale.username }}{% endif %}
+      </p>
       {% if sale.customer_name %}
       <p class="text-sm text-amber-400 mt-1">Customer: {{ sale.customer_name }}</p>
       {% endif %}

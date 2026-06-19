@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}Manage Users - {{ company_name }}{% endblock %}
+{% block content %}
+<div class="flex flex-col lg:flex-row justify-between items-start gap-6 mb-6">
+  <div>
+    <h1 class="text-2xl font-bold">Staff Users</h1>
+    <p class="text-slate-400 text-sm">Create login accounts for staff. All sales and inventory activity is recorded under each username.</p>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+  <div class="xl:col-span-2 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-800/80">
+          <tr>
+            <th class="th">Username</th>
+            <th class="th">Full Name</th>
+            <th class="th">Role</th>
+            <th class="th">Status</th>
+            <th class="th">Created</th>
+            <th class="th">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in users %}
+          <tr class="border-t border-slate-800 hover:bg-slate-800/30">
+            <td class="td font-mono">{{ u.username }}</td>
+            <td class="td">{{ u.full_name or '—' }}</td>
+            <td class="td">
+              {% if u.role == 'admin' %}
+              <span class="badge-admin">Admin</span>
+              {% else %}
+              <span class="badge-staff">Staff</span>
+              {% endif %}
+            </td>
+            <td class="td">
+              {% if u.is_active %}
+              <span class="badge-success">Active</span>
+              {% else %}
+              <span class="badge-muted">Inactive</span>
+              {% endif %}
+            </td>
+            <td class="td text-slate-400 text-xs">{{ u.created_at }}</td>
+            <td class="td">
+              {% if u.role != 'admin' %}
+              <button onclick="openEditUserModal({{ u.id }}, {{ u|tojson }})" class="text-amber-400 hover:underline text-xs">Edit</button>
+              {% if u.id != session.user_id %}
+              <form method="POST" action="{{ url_for('admin_delete_user', user_id=u.id) }}" class="inline ml-2" onsubmit="return confirm('Remove user {{ u.username }}? Users with sales history will be deactivated.')">
+                <button type="submit" class="text-red-400 hover:underline text-xs">Remove</button>
+              </form>
+              {% endif %}
+              {% else %}
+              <span class="text-slate-500 text-xs">Protected</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="td text-center text-slate-500 py-8">No users yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card p-5 h-fit">
+    <h2 class="font-semibold text-lg mb-4">Add Staff User</h2>
+    <form method="POST" action="{{ url_for('admin_add_user') }}" class="space-y-3">
+      <div>
+        <label class="label">Username *</label>
+        <input type="text" name="username" required class="input" placeholder="e.g. kwame" autocomplete="off">
+        <p class="text-xs text-slate-500 mt-1">Used for login and printed on receipts</p>
+      </div>
+      <div>
+        <label class="label">Full Name</label>
+        <input type="text" name="full_name" class="input" placeholder="e.g. Kwame Mensah">
+        <p class="text-xs text-slate-500 mt-1">Shown on receipts alongside username</p>
+      </div>
+      <div>
+        <label class="label">Password *</label>
+        <input type="password" name="password" required minlength="4" class="input" autocomplete="new-password">
+      </div>
+      <div>
+        <label class="label">Confirm Password *</label>
+        <input type="password" name="confirm_password" required minlength="4" class="input" autocomplete="new-password">
+      </div>
+      <button type="submit" class="btn-primary w-full">Create Staff User</button>
+    </form>
+  </div>
+</div>
+
+<div id="editUserModal" class="modal hidden">
+  <div class="modal-backdrop" onclick="closeEditUserModal()"></div>
+  <div class="modal-content card p-6 max-w-md">
+    <h3 class="font-semibold text-lg mb-4">Edit Staff User</h3>
+    <form id="editUserForm" method="POST" class="space-y-3">
+      <div>
+        <label class="label">Full Name</label>
+        <input type="text" name="full_name" id="edit_user_full_name" class="input">
+      </div>
+      <div>
+        <label class="label">New Password</label>
+        <input type="password" name="password" id="edit_user_password" minlength="4" class="input" autocomplete="new-password" placeholder="Leave blank to keep current">
+      </div>
+      <div>
+        <label class="label">Confirm New Password</label>
+        <input type="password" name="confirm_password" id="edit_user_confirm" minlength="4" class="input" autocomplete="new-password">
+      </div>
+      <label class="flex items-center gap-2 text-sm">
+        <input type="checkbox" name="is_active" id="edit_user_active" class="rounded">
+        Active (can log in)
+      </label>
+      <div class="flex gap-2 pt-2">
+        <button type="submit" class="btn-primary flex-1">Save</button>
+        <button type="button" onclick="closeEditUserModal()" class="btn-secondary flex-1">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function openEditUserModal(id, user) {
+  document.getElementById('editUserForm').action = '/admin/users/' + id + '/edit';
+  document.getElementById('edit_user_full_name').value = user.full_name || '';
+  document.getElementById('edit_user_password').value = '';
+  document.getElementById('edit_user_confirm').value = '';
+  document.getElementById('edit_user_active').checked = user.is_active === 1;
+  document.getElementById('editUserModal').classList.remove('hidden');
+}
+function closeEditUserModal() { document.getElementById('editUserModal').classList.add('hidden'); }
+</script>
+{% endblock %}

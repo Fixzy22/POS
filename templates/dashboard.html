@@ -4,7 +4,36 @@
 <h1 class="text-2xl font-bold mb-2">Dashboard</h1>
 <p class="text-slate-400 text-sm mb-6">{{ company_tagline }}</p>
 
-<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+<section class="mb-8">
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+    <h2 class="text-lg font-semibold">Revenue Summary</h2>
+    <a href="{{ url_for('sales_history') }}" class="text-sm text-amber-400 hover:underline">View sales &amp; filter by date →</a>
+  </div>
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div class="stat-card border border-amber-500/20">
+      <p class="stat-label">Today</p>
+      <p class="stat-value text-amber-400">{{ revenue.today.revenue|money }}</p>
+      <p class="text-xs text-slate-500">{{ revenue.today.transactions }} transaction{% if revenue.today.transactions != 1 %}s{% endif %}</p>
+    </div>
+    <div class="stat-card">
+      <p class="stat-label">This Week</p>
+      <p class="stat-value">{{ revenue.week.revenue|money }}</p>
+      <p class="text-xs text-slate-500">Since {{ revenue.week_start }} · {{ revenue.week.transactions }} sales</p>
+    </div>
+    <div class="stat-card">
+      <p class="stat-label">This Month</p>
+      <p class="stat-value">{{ revenue.month.revenue|money }}</p>
+      <p class="text-xs text-slate-500">Since {{ revenue.month_start }} · {{ revenue.month.transactions }} sales</p>
+    </div>
+    <div class="stat-card">
+      <p class="stat-label">All Time</p>
+      <p class="stat-value">{{ revenue.all_time.revenue|money }}</p>
+      <p class="text-xs text-slate-500">{{ revenue.all_time.transactions }} total sales</p>
+    </div>
+  </div>
+</section>
+
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
   <div class="stat-card">
     <p class="stat-label">Active Products</p>
     <p class="stat-value">{{ stats.total_products }}</p>
@@ -13,24 +42,13 @@
     <p class="stat-label">Low Stock Items</p>
     <p class="stat-value text-amber-400">{{ stats.low_stock }}</p>
   </div>
-  <div class="stat-card">
-    <p class="stat-label">Sales Today</p>
-    <p class="stat-value text-amber-400">{{ stats.sales_today|money }}</p>
-    <p class="text-xs text-slate-500">{{ stats.sales_count_today }} transactions</p>
-  </div>
-  <div class="stat-card">
-    <p class="stat-label">Total Revenue</p>
-    <p class="stat-value">{{ stats.total_sales|money }}</p>
-  </div>
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
   <div class="card p-5">
     <div class="flex justify-between items-center mb-4">
       <h2 class="font-semibold text-lg">Low Stock Alerts</h2>
-      {% if session.get('role') == 'admin' %}
       <a href="{{ url_for('inventory') }}" class="text-sm text-amber-400">Manage →</a>
-      {% endif %}
     </div>
     {% if low_stock_products %}
     <div class="space-y-2">
@@ -60,7 +78,10 @@
       <a href="{{ url_for('sale_detail', sale_id=s.id) }}" class="flex justify-between items-center py-2 border-b border-slate-800 last:border-0 hover:bg-slate-800/50 rounded px-2 -mx-2">
         <div>
           <p class="font-medium">{{ s.sale_number }}</p>
-          <p class="text-xs text-slate-500">{{ s.created_at }} · {{ s.username }}</p>
+          <p class="text-xs text-slate-500">
+            {{ s.created_at }} ·
+            {% if s.full_name %}{{ s.full_name }} ({{ s.username }}){% else %}{{ s.username }}{% endif %}
+          </p>
         </div>
         <span class="text-amber-400 font-semibold">{{ s.total_amount|money }}</span>
       </a>
@@ -69,14 +90,13 @@
     {% else %}
     <p class="text-slate-500">No sales recorded yet.</p>
     {% endif %}
-  </div> 
+  </div>
 </div>
 
 <div class="mt-6 flex flex-wrap gap-3">
-  <a href="{{ url_for('pos') }}" class="btn-primary">Open POS</a>
-  <a href="{{ url_for('receipts') }}" class="btn-secondary">Create Receipt</a>
-  {% if session.get('role') == 'admin' %}
+  <a href="{{ url_for('admin_users') }}" class="btn-primary">Manage Staff Users</a>
   <a href="{{ url_for('inventory') }}" class="btn-secondary">Manage Inventory</a>
-  {% endif %}
+  <a href="{{ url_for('sales_history') }}" class="btn-secondary">Sales &amp; Reports</a>
+  <a href="{{ url_for('inventory_logs') }}" class="btn-secondary">Stock Logs</a>
 </div>
 {% endblock %}

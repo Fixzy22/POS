@@ -8,8 +8,8 @@
 </head>
 <body class="receipt-body">
   <div class="receipt-actions no-print">
+    <button type="button" onclick="history.back()" class="btn-secondary">← Back</button>
     <button onclick="window.print()" class="btn-primary">Print Receipt</button>
-    <a href="{{ url_for('receipts') }}" class="btn-secondary">Back to Receipts</a>
     <a href="{{ url_for('sale_detail', sale_id=sale.id) }}" class="btn-secondary">View Sale</a>
   </div>
 
@@ -40,6 +40,12 @@
       {% endif %}
       <div class="receipt-row">
         <span>Cashier</span>
+        <span>
+          {% if sale.full_name %}{{ sale.full_name }}{% else %}{{ sale.username }}{% endif %}
+        </span>
+      </div>
+      <div class="receipt-row">
+        <span>Username</span>
         <span>{{ sale.username }}</span>
       </div>
       <div class="receipt-row">

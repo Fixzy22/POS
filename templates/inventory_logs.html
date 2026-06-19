@@ -31,7 +31,7 @@
           </td>
           <td class="td text-slate-400">{{ log.previous_stock }} → {{ log.new_stock }}</td>
           <td class="td">{{ log.reason }}</td>
-          <td class="td">{{ log.username }}</td>
+          <td class="td">{% if log.full_name %}{{ log.full_name }} <span class="text-slate-500 text-xs">({{ log.username }})</span>{% else %}{{ log.username }}{% endif %}</td>
         </tr>
         {% else %}
         <tr><td colspan="6" class="td text-center text-slate-500 py-8">No inventory changes recorded.</td></tr>

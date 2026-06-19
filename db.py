@@ -17,6 +17,8 @@ PRODUCT_MIGRATIONS = [
     "ALTER TABLE sales ADD COLUMN customer_name TEXT DEFAULT ''",
     "ALTER TABLE sale_items ADD COLUMN unit_type TEXT NOT NULL DEFAULT 'single'",
     "ALTER TABLE sale_items ADD COLUMN base_quantity INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE users ADD COLUMN full_name TEXT DEFAULT ''",
+    "ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1",
 ]
 
 
@@ -102,7 +104,9 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
                 password_hash TEXT NOT NULL,
-                role TEXT NOT NULL DEFAULT 'admin',
+                full_name TEXT DEFAULT '',
+                role TEXT NOT NULL DEFAULT 'user',
+                is_active INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
 
@@ -195,11 +199,37 @@ def init_db():
 def verify_user(username: str, password: str):
     with get_db() as conn:
         user = conn.execute(
-            "SELECT * FROM users WHERE username = ?", (username,)
+            "SELECT * FROM users WHERE username = ? AND is_active = 1", (username,)
         ).fetchone()
         if user and check_password_hash(user["password_hash"], password):
             return dict(user)
     return None
+
+
+def create_user(username: str, password: str, full_name: str = "", role: str = "user"):
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO users (username, password_hash, full_name, role, is_active)
+            VALUES (?, ?, ?, ?, 1)
+            """,
+            (username, generate_password_hash(password), full_name, role),
+        )
+
+
+def update_user_password(user_id: int, password: str):
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (generate_password_hash(password), user_id),
+        )
+
+
+def list_users():
+    with get_db() as conn:
+        return conn.execute(
+            "SELECT id, username, full_name, role, is_active, created_at FROM users ORDER BY role, username"
+        ).fetchall()
 
 
 def get_user_by_id(user_id: int):
