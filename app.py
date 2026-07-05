@@ -26,17 +26,44 @@ from config import (
     CURRENCY_SYMBOL,
     UNIT_LABELS,
 )
-from db import create_user, get_db, init_db, list_users, update_user_password, verify_user
+from db import (
+    count_active_admins,
+    create_user,
+    get_db,
+    init_db,
+    list_users,
+    update_user_details,
+    update_user_password,
+    update_user_username,
+    username_taken,
+    verify_user,
+    verify_user_password,
+)
 from reports import fetch_dashboard_revenue, fetch_revenue
 from units import (
-    from_mixed_units,
+    apply_stock_adjustment,
+    compute_total_stock,
+    deduct_stock,
+    has_any_stock,
     singles_per_unit,
+    stock_count,
     stock_in_units,
     to_singles,
+    total_stock_singles,
     unit_label,
     unit_price,
     VALID_UNITS,
 )
+
+VALID_USER_ROLES = ("admin", "user")
+
+
+def _normalize_role(role: str) -> str | None:
+    role = (role or "").strip().lower()
+    if role in VALID_USER_ROLES:
+        return role
+    return None
+
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
@@ -112,6 +139,50 @@ def home_redirect():
     if session.get("role") == "admin":
         return redirect(url_for("dashboard"))
     return redirect(url_for("pos"))
+
+
+def _parse_pack_and_prices(form):
+    price = float(form.get("price", 0) or 0)
+    price_box = float(form.get("price_box", 0) or 0)
+    price_row = float(form.get("price_row", 0) or 0)
+    units_per_box = max(1, int(form.get("units_per_box", 0) or 0))
+    units_per_row = max(1, int(form.get("units_per_row", 0) or 0))
+    return price, price_box, price_row, units_per_box, units_per_row
+
+
+def _parse_stock_counts(form):
+    stock_singles = max(0, int(form.get("stock_singles", 0) or 0))
+    stock_boxes = max(0, int(form.get("stock_boxes", 0) or 0))
+    stock_rows = max(0, int(form.get("stock_rows", 0) or 0))
+    return stock_singles, stock_boxes, stock_rows
+
+
+def _validate_pack_and_prices(price, price_box, price_row, units_per_box, units_per_row):
+    if price <= 0 or price_box <= 0 or price_row <= 0:
+        return "Set a selling price for singles, boxes, and rows."
+    if units_per_box < 1 or units_per_row < 1:
+        return "Items per box and items per row must be at least 1."
+    return None
+
+
+def _product_json(p):
+    return {
+        "id": p["id"],
+        "name": p["name"],
+        "sku": p["sku"],
+        "price": p["price"],
+        "price_box": p["price_box"],
+        "price_row": p["price_row"],
+        "stock": p["stock"],
+        "stock_singles": stock_count(p, "single"),
+        "stock_boxes": stock_count(p, "box"),
+        "stock_rows": stock_count(p, "row"),
+        "units_per_box": p["units_per_box"],
+        "units_per_row": p["units_per_row"],
+        "stock_single": stock_count(p, "single"),
+        "stock_box": stock_count(p, "box"),
+        "stock_row": stock_count(p, "row"),
+    }
 
 
 @app.before_request
@@ -222,38 +293,33 @@ def inventory():
         "inventory.html",
         products=products,
         search=search,
-        can_manage_inventory=True,
+        can_manage_inventory=session.get("role") == "admin",
     )
 
 
 @app.route("/inventory/add", methods=["POST"])
 @login_required
+@admin_required
 def add_product():
     sku = request.form.get("sku", "").strip().upper()
     name = request.form.get("name", "").strip()
-    price = float(request.form.get("price", 0) or 0)
-    price_box = float(request.form.get("price_box", 0) or 0)
-    price_row = float(request.form.get("price_row", 0) or 0)
+    price, price_box, price_row, units_per_box, units_per_row = _parse_pack_and_prices(request.form)
+    stock_singles, stock_boxes, stock_rows = _parse_stock_counts(request.form)
     cost = float(request.form.get("cost", 0) or 0)
-    units_per_box = max(1, int(request.form.get("units_per_box", 12) or 12))
-    units_per_row = max(1, int(request.form.get("units_per_row", 72) or 72))
-    stock_singles = int(request.form.get("stock_singles", 0) or 0)
-    stock_boxes = int(request.form.get("stock_boxes", 0) or 0)
-    stock_rows = int(request.form.get("stock_rows", 0) or 0)
     category = request.form.get("category", "Spices").strip() or "Spices"
     low_stock = int(request.form.get("low_stock_threshold", 5) or 5)
     description = request.form.get("description", "").strip()
 
-    if not sku or not name or price < 0:
-        flash("SKU, name, and valid single-unit price are required.", "error")
+    if not sku or not name:
+        flash("SKU and name are required.", "error")
         return redirect(url_for("inventory"))
 
-    if price_box <= 0:
-        price_box = price * units_per_box
-    if price_row <= 0:
-        price_row = price * units_per_row
+    price_error = _validate_pack_and_prices(price, price_box, price_row, units_per_box, units_per_row)
+    if price_error:
+        flash(price_error, "error")
+        return redirect(url_for("inventory"))
 
-    stock = stock_singles + stock_boxes * units_per_box + stock_rows * units_per_row
+    stock = compute_total_stock(stock_singles, stock_boxes, stock_rows, units_per_box, units_per_row)
 
     try:
         with get_db() as conn:
@@ -261,12 +327,14 @@ def add_product():
                 """
                 INSERT INTO products (
                     sku, name, description, price, price_box, price_row, cost, stock,
+                    stock_singles, stock_boxes, stock_rows,
                     units_per_box, units_per_row, category, low_stock_threshold
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     sku, name, description, price, price_box, price_row, cost, stock,
+                    stock_singles, stock_boxes, stock_rows,
                     units_per_box, units_per_row, category, low_stock,
                 ),
             )
@@ -286,44 +354,65 @@ def add_product():
 
 @app.route("/inventory/<int:product_id>/edit", methods=["POST"])
 @login_required
+@admin_required
 def edit_product(product_id):
     name = request.form.get("name", "").strip()
-    price = float(request.form.get("price", 0) or 0)
-    price_box = float(request.form.get("price_box", 0) or 0)
-    price_row = float(request.form.get("price_row", 0) or 0)
+    price, price_box, price_row, units_per_box, units_per_row = _parse_pack_and_prices(request.form)
+    stock_singles, stock_boxes, stock_rows = _parse_stock_counts(request.form)
     cost = float(request.form.get("cost", 0) or 0)
-    units_per_box = max(1, int(request.form.get("units_per_box", 12) or 12))
-    units_per_row = max(1, int(request.form.get("units_per_row", 72) or 72))
     category = request.form.get("category", "Spices").strip() or "Spices"
     low_stock = int(request.form.get("low_stock_threshold", 5) or 5)
     description = request.form.get("description", "").strip()
     is_active = 1 if request.form.get("is_active") == "on" else 0
 
-    if price_box <= 0:
-        price_box = price * units_per_box
-    if price_row <= 0:
-        price_row = price * units_per_row
+    if not name:
+        flash("Product name is required.", "error")
+        return redirect(url_for("inventory"))
+
+    price_error = _validate_pack_and_prices(price, price_box, price_row, units_per_box, units_per_row)
+    if price_error:
+        flash(price_error, "error")
+        return redirect(url_for("inventory"))
+
+    stock = compute_total_stock(stock_singles, stock_boxes, stock_rows, units_per_box, units_per_row)
 
     with get_db() as conn:
+        product = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        if not product:
+            flash("Product not found.", "error")
+            return redirect(url_for("inventory"))
+
+        previous_stock = product["stock"]
         conn.execute(
             """
             UPDATE products
             SET name = ?, description = ?, price = ?, price_box = ?, price_row = ?,
-                cost = ?, units_per_box = ?, units_per_row = ?, category = ?,
+                cost = ?, stock = ?, stock_singles = ?, stock_boxes = ?, stock_rows = ?,
+                units_per_box = ?, units_per_row = ?, category = ?,
                 low_stock_threshold = ?, is_active = ?, updated_at = datetime('now')
             WHERE id = ?
             """,
             (
-                name, description, price, price_box, price_row, cost,
+                name, description, price, price_box, price_row, cost, stock,
+                stock_singles, stock_boxes, stock_rows,
                 units_per_box, units_per_row, category, low_stock, is_active, product_id,
             ),
         )
+        if stock != previous_stock:
+            conn.execute(
+                """
+                INSERT INTO inventory_logs (product_id, change_amount, previous_stock, new_stock, reason, created_by)
+                VALUES (?, ?, ?, ?, 'Stock updated via edit', ?)
+                """,
+                (product_id, stock - previous_stock, previous_stock, stock, session["user_id"]),
+            )
     flash("Product updated.", "success")
     return redirect(url_for("inventory"))
 
 
 @app.route("/inventory/<int:product_id>/adjust", methods=["POST"])
 @login_required
+@admin_required
 def adjust_stock(product_id):
     singles = int(request.form.get("adj_singles", 0) or 0)
     boxes = int(request.form.get("adj_boxes", 0) or 0)
@@ -338,26 +427,34 @@ def adjust_stock(product_id):
             flash("Product not found.", "error")
             return redirect(url_for("inventory"))
 
-        change = from_mixed_units(singles, boxes, rows, product)
-        if change == 0:
+        if singles == 0 and boxes == 0 and rows == 0:
             flash("Enter a quantity to adjust.", "error")
             return redirect(url_for("inventory"))
 
-        new_stock = product["stock"] + change
-        if new_stock < 0:
+        result = apply_stock_adjustment(product, singles, boxes, rows)
+        if result is None:
             flash("Stock cannot go below zero.", "error")
             return redirect(url_for("inventory"))
 
+        stock_singles, stock_boxes, stock_rows, new_stock = result
+        previous_stock = product["stock"]
+        change = new_stock - previous_stock
+
         conn.execute(
-            "UPDATE products SET stock = ?, updated_at = datetime('now') WHERE id = ?",
-            (new_stock, product_id),
+            """
+            UPDATE products
+            SET stock = ?, stock_singles = ?, stock_boxes = ?, stock_rows = ?,
+                updated_at = datetime('now')
+            WHERE id = ?
+            """,
+            (new_stock, stock_singles, stock_boxes, stock_rows, product_id),
         )
         conn.execute(
             """
             INSERT INTO inventory_logs (product_id, change_amount, previous_stock, new_stock, reason, created_by)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (product_id, change, product["stock"], new_stock, reason, session["user_id"]),
+            (product_id, change, previous_stock, new_stock, reason, session["user_id"]),
         )
     flash("Stock adjusted successfully.", "success")
     return redirect(url_for("inventory"))
@@ -365,6 +462,7 @@ def adjust_stock(product_id):
 
 @app.route("/inventory/<int:product_id>/clear-stock", methods=["POST"])
 @login_required
+@admin_required
 def clear_stock(product_id):
     with get_db() as conn:
         product = conn.execute(
@@ -379,7 +477,12 @@ def clear_stock(product_id):
             return redirect(url_for("inventory"))
 
         conn.execute(
-            "UPDATE products SET stock = 0, updated_at = datetime('now') WHERE id = ?",
+            """
+            UPDATE products
+            SET stock = 0, stock_singles = 0, stock_boxes = 0, stock_rows = 0,
+                updated_at = datetime('now')
+            WHERE id = ?
+            """,
             (product_id,),
         )
         conn.execute(
@@ -395,6 +498,7 @@ def clear_stock(product_id):
 
 @app.route("/inventory/<int:product_id>/delete", methods=["POST"])
 @login_required
+@admin_required
 def delete_product(product_id):
     with get_db() as conn:
         product = conn.execute(
@@ -421,7 +525,8 @@ def delete_product(product_id):
             conn.execute(
                 """
                 UPDATE products
-                SET is_active = 0, stock = 0, updated_at = datetime('now')
+                SET is_active = 0, stock = 0, stock_singles = 0, stock_boxes = 0, stock_rows = 0,
+                    updated_at = datetime('now')
                 WHERE id = ?
                 """,
                 (product_id,),
@@ -443,24 +548,14 @@ def delete_product(product_id):
 def pos():
     with get_db() as conn:
         products = conn.execute(
-            "SELECT * FROM products WHERE is_active = 1 AND stock > 0 ORDER BY name"
+            """
+            SELECT * FROM products
+            WHERE is_active = 1
+              AND (stock_singles > 0 OR stock_boxes > 0 OR stock_rows > 0 OR stock > 0)
+            ORDER BY name
+            """
         ).fetchall()
-    products_json = []
-    for p in products:
-        products_json.append({
-            "id": p["id"],
-            "name": p["name"],
-            "sku": p["sku"],
-            "price": p["price"],
-            "price_box": p["price_box"],
-            "price_row": p["price_row"],
-            "stock": p["stock"],
-            "units_per_box": p["units_per_box"],
-            "units_per_row": p["units_per_row"],
-            "stock_single": stock_in_units(p, "single"),
-            "stock_box": stock_in_units(p, "box"),
-            "stock_row": stock_in_units(p, "row"),
-        })
+    products_json = [_product_json(p) for p in products]
     return render_template("pos.html", products=products, products_json=products_json)
 
 
@@ -470,7 +565,12 @@ def pos():
 def receipts():
     with get_db() as conn:
         products = conn.execute(
-            "SELECT * FROM products WHERE is_active = 1 AND stock > 0 ORDER BY name"
+            """
+            SELECT * FROM products
+            WHERE is_active = 1
+              AND (stock_singles > 0 OR stock_boxes > 0 OR stock_rows > 0 OR stock > 0)
+            ORDER BY name
+            """
         ).fetchall()
         recent_sales = conn.execute(
             """
@@ -481,22 +581,7 @@ def receipts():
             ORDER BY s.created_at DESC LIMIT 20
             """
         ).fetchall()
-    products_json = []
-    for p in products:
-        products_json.append({
-            "id": p["id"],
-            "name": p["name"],
-            "sku": p["sku"],
-            "price": p["price"],
-            "price_box": p["price_box"],
-            "price_row": p["price_row"],
-            "stock": p["stock"],
-            "units_per_box": p["units_per_box"],
-            "units_per_row": p["units_per_row"],
-            "stock_single": stock_in_units(p, "single"),
-            "stock_box": stock_in_units(p, "box"),
-            "stock_row": stock_in_units(p, "row"),
-        })
+    products_json = [_product_json(p) for p in products]
     return render_template(
         "receipts.html",
         products_json=products_json,
@@ -540,12 +625,13 @@ def checkout():
                 if qty <= 0:
                     return jsonify({"error": "Invalid quantity"}), 400
 
-                base_qty = to_singles(qty, unit_type, product)
-                if product["stock"] < base_qty:
+                available = stock_count(product, unit_type)
+                if available < qty:
                     return jsonify(
                         {"error": f"Insufficient stock for {product['name']} ({unit_label(unit_type)})"}
                     ), 400
 
+                base_qty = to_singles(qty, unit_type, product)
                 price = unit_price(product, unit_type)
                 line_total = price * qty
                 total += line_total
@@ -575,10 +661,19 @@ def checkout():
                         base_qty, price, line_total,
                     ),
                 )
-                new_stock = product["stock"] - base_qty
+                result = deduct_stock(product, unit_type, qty)
+                if result is None:
+                    return jsonify({"error": f"Insufficient stock for {product['name']}"}), 400
+
+                stock_singles, stock_boxes, stock_rows, new_stock = result
                 conn.execute(
-                    "UPDATE products SET stock = ?, updated_at = datetime('now') WHERE id = ?",
-                    (new_stock, product["id"]),
+                    """
+                    UPDATE products
+                    SET stock = ?, stock_singles = ?, stock_boxes = ?, stock_rows = ?,
+                        updated_at = datetime('now')
+                    WHERE id = ?
+                    """,
+                    (new_stock, stock_singles, stock_boxes, stock_rows, product["id"]),
                 )
                 conn.execute(
                     """
@@ -868,7 +963,63 @@ def admin_delete_sale(sale_id):
 @admin_required
 def admin_users():
     users = list_users()
-    return render_template("admin_users.html", users=users)
+    return render_template(
+        "admin_users.html",
+        users=users,
+        current_username=session.get("username", ""),
+    )
+
+
+@app.route("/admin/change-username", methods=["POST"])
+@login_required
+@admin_required
+def admin_change_username():
+    current_username = request.form.get("current_username", "").strip()
+    new_username = request.form.get("new_username", "").strip()
+
+    if not current_username or not new_username:
+        flash("Current and new usernames are required.", "error")
+        return redirect(url_for("admin_users"))
+    if current_username != session.get("username"):
+        flash("Current username does not match your account.", "error")
+        return redirect(url_for("admin_users"))
+    if new_username.lower() == current_username.lower():
+        flash("New username must be different from your current username.", "error")
+        return redirect(url_for("admin_users"))
+    if username_taken(new_username, exclude_user_id=session["user_id"]):
+        flash("That username is already taken.", "error")
+        return redirect(url_for("admin_users"))
+
+    update_user_username(session["user_id"], new_username)
+    session["username"] = new_username
+    flash("Username updated successfully.", "success")
+    return redirect(url_for("admin_users"))
+
+
+@app.route("/admin/change-password", methods=["POST"])
+@login_required
+@admin_required
+def admin_change_password():
+    current_password = request.form.get("current_password", "")
+    new_password = request.form.get("new_password", "")
+    confirm_password = request.form.get("confirm_password", "")
+
+    if not current_password or not new_password:
+        flash("Current and new passwords are required.", "error")
+        return redirect(url_for("admin_users"))
+    if len(new_password) < 4:
+        flash("New password must be at least 4 characters.", "error")
+        return redirect(url_for("admin_users"))
+    if new_password != confirm_password:
+        flash("New passwords do not match.", "error")
+        return redirect(url_for("admin_users"))
+    if not verify_user_password(session["user_id"], current_password):
+        flash("Current password is incorrect.", "error")
+        return redirect(url_for("admin_users"))
+
+    update_user_password(session["user_id"], new_password)
+    flash("Admin password updated successfully.", "success")
+    return redirect(url_for("admin_users"))
 
 
 @app.route("/admin/users/add", methods=["POST"])
@@ -879,9 +1030,13 @@ def admin_add_user():
     full_name = request.form.get("full_name", "").strip()
     password = request.form.get("password", "")
     confirm = request.form.get("confirm_password", "")
+    role = _normalize_role(request.form.get("role", "user"))
 
     if not username or not password:
         flash("Username and password are required.", "error")
+        return redirect(url_for("admin_users"))
+    if not role:
+        flash("Select a valid role.", "error")
         return redirect(url_for("admin_users"))
     if len(password) < 4:
         flash("Password must be at least 4 characters.", "error")
@@ -889,13 +1044,14 @@ def admin_add_user():
     if password != confirm:
         flash("Passwords do not match.", "error")
         return redirect(url_for("admin_users"))
-    if username.lower() == ADMIN_USERNAME.lower():
-        flash("That username is reserved for the admin account.", "error")
+    if username_taken(username):
+        flash("That username is already taken.", "error")
         return redirect(url_for("admin_users"))
 
     try:
-        create_user(username, password, full_name, role="user")
-        flash(f"Staff user '{username}' created successfully.", "success")
+        create_user(username, password, full_name, role=role)
+        role_label = "Admin" if role == "admin" else "Staff"
+        flash(f"{role_label} user '{username}' created successfully.", "success")
     except Exception:
         flash("Could not create user. Username may already exist.", "error")
     return redirect(url_for("admin_users"))
@@ -908,24 +1064,46 @@ def admin_edit_user(user_id):
     full_name = request.form.get("full_name", "").strip()
     password = request.form.get("password", "").strip()
     confirm = request.form.get("confirm_password", "").strip()
+    role = _normalize_role(request.form.get("role", "user"))
     is_active = 1 if request.form.get("is_active") == "on" else 0
+
+    if not role:
+        flash("Select a valid role.", "error")
+        return redirect(url_for("admin_users"))
 
     with get_db() as conn:
         user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
         if not user:
             flash("User not found.", "error")
             return redirect(url_for("admin_users"))
-        if user["role"] == "admin" and user_id != session["user_id"]:
-            flash("Admin accounts cannot be edited here.", "error")
-            return redirect(url_for("admin_users"))
+
         if user_id == session["user_id"] and not is_active:
             flash("You cannot deactivate your own account.", "error")
             return redirect(url_for("admin_users"))
 
-        conn.execute(
-            "UPDATE users SET full_name = ?, is_active = ? WHERE id = ?",
-            (full_name, is_active, user_id),
+        if user["role"] == "admin" and is_active == 0:
+            if count_active_admins(exclude_user_id=user_id) == 0:
+                flash("At least one active admin must remain.", "error")
+                return redirect(url_for("admin_users"))
+
+        if user["role"] == "admin" and role != "admin":
+            if count_active_admins(exclude_user_id=user_id) == 0:
+                flash("At least one active admin must remain.", "error")
+                return redirect(url_for("admin_users"))
+
+        if user["role"] == "admin" and role != "admin" and user_id == session["user_id"]:
+            flash("You cannot remove your own admin role.", "error")
+            return redirect(url_for("admin_users"))
+
+        update_user_details(
+            user_id,
+            full_name=full_name,
+            role=role,
+            is_active=is_active,
         )
+
+        if user_id == session["user_id"] and role != session.get("role"):
+            session["role"] = role
 
     if password:
         if len(password) < 4:
@@ -953,8 +1131,9 @@ def admin_delete_user(user_id):
         if not user:
             flash("User not found.", "error")
             return redirect(url_for("admin_users"))
-        if user["role"] == "admin":
-            flash("Admin accounts cannot be deleted.", "error")
+
+        if user["role"] == "admin" and count_active_admins(exclude_user_id=user_id) == 0:
+            flash("Cannot remove the last active admin account.", "error")
             return redirect(url_for("admin_users"))
 
         sale_count = conn.execute(

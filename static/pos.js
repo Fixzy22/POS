@@ -14,14 +14,15 @@ function singlesPerUnit(product, unit) {
 }
 
 function getUnitPrice(product, unit) {
-  if (unit === 'box' && product.price_box > 0) return product.price_box;
-  if (unit === 'row' && product.price_row > 0) return product.price_row;
-  return product.price * singlesPerUnit(product, unit);
+  if (unit === 'box') return product.price_box;
+  if (unit === 'row') return product.price_row;
+  return product.price;
 }
 
 function stockForUnit(product, unit) {
-  const per = singlesPerUnit(product, unit);
-  return Math.floor(product.stock / per);
+  if (unit === 'box') return product.stock_boxes || 0;
+  if (unit === 'row') return product.stock_rows || 0;
+  return product.stock_singles || 0;
 }
 
 function unitLabel(unit) {

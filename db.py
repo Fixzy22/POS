@@ -19,6 +19,9 @@ PRODUCT_MIGRATIONS = [
     "ALTER TABLE sale_items ADD COLUMN base_quantity INTEGER NOT NULL DEFAULT 1",
     "ALTER TABLE users ADD COLUMN full_name TEXT DEFAULT ''",
     "ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE products ADD COLUMN stock_singles INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE products ADD COLUMN stock_boxes INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE products ADD COLUMN stock_rows INTEGER NOT NULL DEFAULT 0",
 ]
 
 
@@ -64,6 +67,16 @@ def _migrate_columns(conn):
     conn.execute(
         "UPDATE sale_items SET base_quantity = quantity WHERE base_quantity IS NULL OR base_quantity = 0"
     )
+    conn.execute(
+        """
+        UPDATE products
+        SET stock_singles = stock
+        WHERE stock > 0
+          AND stock_singles = 0
+          AND stock_boxes = 0
+          AND stock_rows = 0
+        """
+    )
 
 
 def _ensure_admin_user(conn):
@@ -73,8 +86,8 @@ def _ensure_admin_user(conn):
     ).fetchone()
     if yoky:
         conn.execute(
-            "UPDATE users SET password_hash = ?, role = 'admin' WHERE username = ?",
-            (password_hash, ADMIN_USERNAME),
+            "UPDATE users SET role = 'admin' WHERE username = ?",
+            (ADMIN_USERNAME,),
         )
         return
 
@@ -188,11 +201,12 @@ def init_db():
                     """
                     INSERT INTO products (
                         sku, name, description, price, price_box, price_row, cost, stock,
+                        stock_singles, stock_boxes, stock_rows,
                         units_per_box, units_per_row, category, low_stock_threshold
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?)
                     """,
-                    (sku, name, desc, price, price_box, price_row, cost, stock, upb, upr, category, low),
+                    (sku, name, desc, price, price_box, price_row, cost, stock, stock, upb, upr, category, low),
                 )
 
 
@@ -223,6 +237,81 @@ def update_user_password(user_id: int, password: str):
             "UPDATE users SET password_hash = ? WHERE id = ?",
             (generate_password_hash(password), user_id),
         )
+
+
+def username_taken(username: str, exclude_user_id: int | None = None) -> bool:
+    with get_db() as conn:
+        if exclude_user_id:
+            row = conn.execute(
+                "SELECT id FROM users WHERE username = ? AND id != ?",
+                (username, exclude_user_id),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT id FROM users WHERE username = ?",
+                (username,),
+            ).fetchone()
+        return row is not None
+
+
+def count_active_admins(exclude_user_id: int | None = None) -> int:
+    with get_db() as conn:
+        if exclude_user_id:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS c FROM users
+                WHERE role = 'admin' AND is_active = 1 AND id != ?
+                """,
+                (exclude_user_id,),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT COUNT(*) AS c FROM users WHERE role = 'admin' AND is_active = 1"
+            ).fetchone()
+        return row["c"]
+
+
+def update_user_username(user_id: int, username: str):
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE users SET username = ? WHERE id = ?",
+            (username, user_id),
+        )
+
+
+def update_user_details(
+    user_id: int,
+    *,
+    full_name: str | None = None,
+    role: str | None = None,
+    is_active: int | None = None,
+):
+    fields = []
+    values = []
+    if full_name is not None:
+        fields.append("full_name = ?")
+        values.append(full_name)
+    if role is not None:
+        fields.append("role = ?")
+        values.append(role)
+    if is_active is not None:
+        fields.append("is_active = ?")
+        values.append(is_active)
+    if not fields:
+        return
+    values.append(user_id)
+    with get_db() as conn:
+        conn.execute(
+            f"UPDATE users SET {', '.join(fields)} WHERE id = ?",
+            values,
+        )
+
+
+def verify_user_password(user_id: int, password: str) -> bool:
+    user = get_user_by_id(user_id)
+    if not user:
+        return False
+    return check_password_hash(user["password_hash"], password)
 
 
 def list_users():

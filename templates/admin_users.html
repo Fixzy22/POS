@@ -3,8 +3,46 @@
 {% block content %}
 <div class="flex flex-col lg:flex-row justify-between items-start gap-6 mb-6">
   <div>
-    <h1 class="text-2xl font-bold">Staff Users</h1>
-    <p class="text-slate-400 text-sm">Create login accounts for staff. All sales and inventory activity is recorded under each username.</p>
+    <h1 class="text-2xl font-bold">Manage Users</h1>
+    <p class="text-slate-400 text-sm">Create accounts, assign admin or staff roles, and manage your own login details.</p>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
+  <div class="card p-5 h-fit">
+    <h2 class="font-semibold text-lg mb-1">Change Username</h2>
+    <p class="text-xs text-slate-500 mb-4">Your current username is <span class="font-mono text-slate-300">{{ current_username }}</span>. Enter it below to confirm the change.</p>
+    <form method="POST" action="{{ url_for('admin_change_username') }}" class="space-y-3">
+      <div>
+        <label class="label">Current Username *</label>
+        <input type="text" name="current_username" required class="input" autocomplete="username" placeholder="{{ current_username }}">
+      </div>
+      <div>
+        <label class="label">New Username *</label>
+        <input type="text" name="new_username" required class="input" autocomplete="off">
+      </div>
+      <button type="submit" class="btn-primary w-full">Update Username</button>
+    </form>
+  </div>
+
+  <div class="card p-5 h-fit">
+    <h2 class="font-semibold text-lg mb-1">Change Password</h2>
+    <p class="text-xs text-slate-500 mb-4">Enter your current password to set a new one.</p>
+    <form method="POST" action="{{ url_for('admin_change_password') }}" class="space-y-3">
+      <div>
+        <label class="label">Current Password *</label>
+        <input type="password" name="current_password" required minlength="4" class="input" autocomplete="current-password">
+      </div>
+      <div>
+        <label class="label">New Password *</label>
+        <input type="password" name="new_password" required minlength="4" class="input" autocomplete="new-password">
+      </div>
+      <div>
+        <label class="label">Confirm New Password *</label>
+        <input type="password" name="confirm_password" required minlength="4" class="input" autocomplete="new-password">
+      </div>
+      <button type="submit" class="btn-primary w-full">Update Password</button>
+    </form>
   </div>
 </div>
 
@@ -25,7 +63,10 @@
         <tbody>
           {% for u in users %}
           <tr class="border-t border-slate-800 hover:bg-slate-800/30">
-            <td class="td font-mono">{{ u.username }}</td>
+            <td class="td font-mono">
+              {{ u.username }}
+              {% if u.id == session.user_id %}<span class="text-xs text-slate-500">(you)</span>{% endif %}
+            </td>
             <td class="td">{{ u.full_name or '—' }}</td>
             <td class="td">
               {% if u.role == 'admin' %}
@@ -43,15 +84,11 @@
             </td>
             <td class="td text-slate-400 text-xs">{{ u.created_at }}</td>
             <td class="td">
-              {% if u.role != 'admin' %}
               <button onclick="openEditUserModal({{ u.id }}, {{ u|tojson }})" class="text-amber-400 hover:underline text-xs">Edit</button>
               {% if u.id != session.user_id %}
               <form method="POST" action="{{ url_for('admin_delete_user', user_id=u.id) }}" class="inline ml-2" onsubmit="return confirm('Remove user {{ u.username }}? Users with sales history will be deactivated.')">
                 <button type="submit" class="text-red-400 hover:underline text-xs">Remove</button>
               </form>
-              {% endif %}
-              {% else %}
-              <span class="text-slate-500 text-xs">Protected</span>
               {% endif %}
             </td>
           </tr>
@@ -64,17 +101,23 @@
   </div>
 
   <div class="card p-5 h-fit">
-    <h2 class="font-semibold text-lg mb-4">Add Staff User</h2>
+    <h2 class="font-semibold text-lg mb-4">Add User</h2>
     <form method="POST" action="{{ url_for('admin_add_user') }}" class="space-y-3">
       <div>
         <label class="label">Username *</label>
         <input type="text" name="username" required class="input" placeholder="e.g. kwame" autocomplete="off">
-        <p class="text-xs text-slate-500 mt-1">Used for login and printed on receipts</p>
       </div>
       <div>
         <label class="label">Full Name</label>
         <input type="text" name="full_name" class="input" placeholder="e.g. Kwame Mensah">
-        <p class="text-xs text-slate-500 mt-1">Shown on receipts alongside username</p>
+      </div>
+      <div>
+        <label class="label">Role *</label>
+        <select name="role" class="input">
+          <option value="user">Staff</option>
+          <option value="admin">Admin</option>
+        </select>
+        <p class="text-xs text-slate-500 mt-1">Admins can manage inventory, users, and reports.</p>
       </div>
       <div>
         <label class="label">Password *</label>
@@ -84,7 +127,7 @@
         <label class="label">Confirm Password *</label>
         <input type="password" name="confirm_password" required minlength="4" class="input" autocomplete="new-password">
       </div>
-      <button type="submit" class="btn-primary w-full">Create Staff User</button>
+      <button type="submit" class="btn-primary w-full">Create User</button>
     </form>
   </div>
 </div>
@@ -92,11 +135,22 @@
 <div id="editUserModal" class="modal hidden">
   <div class="modal-backdrop" onclick="closeEditUserModal()"></div>
   <div class="modal-content card p-6 max-w-md">
-    <h3 class="font-semibold text-lg mb-4">Edit Staff User</h3>
+    <h3 class="font-semibold text-lg mb-4">Edit User</h3>
     <form id="editUserForm" method="POST" class="space-y-3">
+      <div>
+        <label class="label">Username</label>
+        <input type="text" id="edit_user_username" class="input bg-slate-900/50" readonly>
+      </div>
       <div>
         <label class="label">Full Name</label>
         <input type="text" name="full_name" id="edit_user_full_name" class="input">
+      </div>
+      <div>
+        <label class="label">Role</label>
+        <select name="role" id="edit_user_role" class="input">
+          <option value="user">Staff</option>
+          <option value="admin">Admin</option>
+        </select>
       </div>
       <div>
         <label class="label">New Password</label>
@@ -123,7 +177,9 @@
 <script>
 function openEditUserModal(id, user) {
   document.getElementById('editUserForm').action = '/admin/users/' + id + '/edit';
+  document.getElementById('edit_user_username').value = user.username;
   document.getElementById('edit_user_full_name').value = user.full_name || '';
+  document.getElementById('edit_user_role').value = user.role === 'admin' ? 'admin' : 'user';
   document.getElementById('edit_user_password').value = '';
   document.getElementById('edit_user_confirm').value = '';
   document.getElementById('edit_user_active').checked = user.is_active === 1;

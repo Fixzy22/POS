@@ -20,7 +20,7 @@
         <p class="text-xs text-slate-500 font-mono">{{ p.sku }}</p>
         <p class="text-amber-400 font-bold mt-2">{{ p.price|money }} <span class="text-xs font-normal text-slate-500">/ unit</span></p>
         <p class="text-xs text-slate-500 mt-1">
-          {{ p.stock }} singles · {{ p.stock // p.units_per_box }} boxes · {{ p.stock // p.units_per_row }} rows
+          {{ p.stock_singles or 0 }} singles · {{ p.stock_boxes or 0 }} boxes · {{ p.stock_rows or 0 }} rows
         </p>
       </button>
       {% else %}
