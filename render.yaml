@@ -6,8 +6,14 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
     healthCheckPath: /login
+    disk:
+      name: pos-data
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.11
       - key: SECRET_KEY
         generateValue: true
+      - key: DB_PATH
+        value: /var/data/pos.db
