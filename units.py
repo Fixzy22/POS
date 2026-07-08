@@ -3,6 +3,14 @@ from config import UNIT_LABELS
 VALID_UNITS = ("single", "box", "row")
 
 
+def _product_value(product, field: str, default=0):
+    try:
+        value = product[field]
+    except (KeyError, IndexError, TypeError):
+        return default
+    return default if value is None else value
+
+
 def singles_per_unit(product, unit_type: str) -> int:
     if unit_type == "box":
         return max(1, int(product["units_per_box"]))
@@ -21,10 +29,10 @@ def unit_price(product, unit_type: str) -> float:
 
 def stock_count(product, unit_type: str) -> int:
     if unit_type == "box":
-        return max(0, int(product.get("stock_boxes") or 0))
+        return max(0, int(_product_value(product, "stock_boxes", 0) or 0))
     if unit_type == "row":
-        return max(0, int(product.get("stock_rows") or 0))
-    return max(0, int(product.get("stock_singles") or 0))
+        return max(0, int(_product_value(product, "stock_rows", 0) or 0))
+    return max(0, int(_product_value(product, "stock_singles", 0) or 0))
 
 
 def stock_in_units(product, unit_type: str) -> int:
