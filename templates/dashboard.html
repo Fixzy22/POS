@@ -99,4 +99,14 @@
   <a href="{{ url_for('sales_history') }}" class="btn-secondary">Sales &amp; Reports</a>
   <a href="{{ url_for('inventory_logs') }}" class="btn-secondary">Stock Logs</a>
 </div>
+
+<div class="mt-6 card p-4 text-sm">
+  <p class="font-semibold mb-1">Data storage</p>
+  {% if storage_persisted %}
+  <p class="text-emerald-400">Persistent disk active — inventory, users, and sales survive redeploys.</p>
+  {% else %}
+  <p class="text-amber-400">Warning — database is not on the Render disk. Set <span class="font-mono">DB_PATH=/var/data/pos.db</span> in Environment.</p>
+  {% endif %}
+  <p class="text-xs text-slate-500 mt-2 font-mono">Database: {{ db_path }}{% if db_exists %} (exists){% else %} (will be created on first save){% endif %}</p>
+</div>
 {% endblock %}

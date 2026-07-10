@@ -29,6 +29,7 @@ from config import (
 from db import (
     count_active_admins,
     create_user,
+    DB_PATH,
     get_db,
     init_db,
     list_users,
@@ -185,10 +186,6 @@ def _product_json(p):
     }
 
 
-@app.before_request
-def ensure_db():
-    init_db()
-
 
 @app.route("/")
 def index():
@@ -262,12 +259,17 @@ def dashboard():
             ORDER BY s.created_at DESC LIMIT 8
             """
         ).fetchall()
+    db_path = str(DB_PATH)
+    storage_persisted = db_path.replace("\\", "/").startswith("/var/data")
     return render_template(
         "dashboard.html",
         stats=stats,
         revenue=revenue,
         low_stock_products=low_stock_products,
         recent_sales=recent_sales,
+        db_path=db_path,
+        db_exists=DB_PATH.exists(),
+        storage_persisted=storage_persisted,
     )
 
 
@@ -1151,6 +1153,8 @@ def admin_delete_user(user_id):
     return redirect(url_for("admin_users"))
 
 
+init_db()
+
+
 if __name__ == "__main__":
-    init_db()
     app.run(debug=True, host="0.0.0.0", port=5000)
