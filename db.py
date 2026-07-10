@@ -7,7 +7,24 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from config import ADMIN_PASSWORD, ADMIN_USERNAME
 
-DB_PATH = Path(os.environ.get("DB_PATH", Path(__file__).parent / "pos.db"))
+PERSISTENT_DB = Path("/var/data/pos.db")
+
+
+def resolve_db_path() -> Path:
+    explicit = os.environ.get("DB_PATH", "").strip()
+    if explicit:
+        return Path(explicit)
+    if PERSISTENT_DB.exists():
+        return PERSISTENT_DB
+    return Path(__file__).parent / "pos.db"
+
+
+def get_db_path() -> Path:
+    return resolve_db_path()
+
+
+# Kept for backwards compatibility; always reflects the current resolved path.
+DB_PATH = resolve_db_path()
 
 PRODUCT_MIGRATIONS = [
     "ALTER TABLE products ADD COLUMN price_box REAL NOT NULL DEFAULT 0",
@@ -26,8 +43,9 @@ PRODUCT_MIGRATIONS = [
 
 
 def get_connection():
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH), timeout=30)
+    db_path = resolve_db_path()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(db_path), timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     try:
@@ -193,7 +211,9 @@ def init_db():
         _ensure_admin_user(conn)
 
         product_count = conn.execute("SELECT COUNT(*) AS c FROM products").fetchone()["c"]
-        if product_count == 0:
+        db_path = resolve_db_path()
+        on_persistent_disk = str(db_path).replace("\\", "/").startswith("/var/data")
+        if product_count == 0 and not on_persistent_disk:
             sample_products = [
                 ("YOKY-001", "Curry Powder", "Premium blend 50g sachet", 2.50, 28.00, 150.00, 1.20, 12, 72, 200, "Ground Spices", 50),
                 ("YOKY-002", "Paprika", "Sweet paprika 40g sachet", 2.00, 22.00, 120.00, 0.90, 12, 72, 180, "Ground Spices", 40),

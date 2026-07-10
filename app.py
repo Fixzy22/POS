@@ -30,8 +30,8 @@ from config import (
 from db import (
     count_active_admins,
     create_user,
-    DB_PATH,
     get_db,
+    get_db_path,
     init_db,
     list_users,
     update_user_details,
@@ -200,6 +200,20 @@ def ensure_db():
         if not _db_initialized:
             init_db()
             _db_initialized = True
+            db_path = get_db_path()
+            with get_db() as conn:
+                product_count = conn.execute(
+                    "SELECT COUNT(*) AS c FROM products"
+                ).fetchone()["c"]
+                user_count = conn.execute(
+                    "SELECT COUNT(*) AS c FROM users"
+                ).fetchone()["c"]
+            app.logger.info(
+                "Using database %s (%s products, %s users)",
+                db_path,
+                product_count,
+                user_count,
+            )
 
 
 @app.route("/")
@@ -274,7 +288,7 @@ def dashboard():
             ORDER BY s.created_at DESC LIMIT 8
             """
         ).fetchall()
-    db_path = str(DB_PATH)
+    db_path = str(get_db_path())
     storage_persisted = db_path.replace("\\", "/").startswith("/var/data")
     return render_template(
         "dashboard.html",
@@ -283,7 +297,7 @@ def dashboard():
         low_stock_products=low_stock_products,
         recent_sales=recent_sales,
         db_path=db_path,
-        db_exists=DB_PATH.exists(),
+        db_exists=get_db_path().exists(),
         storage_persisted=storage_persisted,
     )
 
