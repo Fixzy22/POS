@@ -1,6 +1,7 @@
 import json
 import os
 import secrets
+import threading
 from datetime import date, datetime
 from functools import wraps
 
@@ -185,6 +186,20 @@ def _product_json(p):
         "stock_row": stock_count(p, "row"),
     }
 
+
+_db_initialized = False
+_db_init_lock = threading.Lock()
+
+
+@app.before_request
+def ensure_db():
+    global _db_initialized
+    if _db_initialized:
+        return
+    with _db_init_lock:
+        if not _db_initialized:
+            init_db()
+            _db_initialized = True
 
 
 @app.route("/")
@@ -1153,8 +1168,6 @@ def admin_delete_user(user_id):
     return redirect(url_for("admin_users"))
 
 
-init_db()
-
-
 if __name__ == "__main__":
+    init_db()
     app.run(debug=True, host="0.0.0.0", port=5000)
